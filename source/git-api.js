@@ -963,7 +963,40 @@ exports.registerApi = (env) => {
     const task = gitPromise(
       ['stash', 'list', '--decorate=full', '--pretty=fuller', '-z', '--parents', '--numstat'],
       req.query.path
-    ).then(gitParser.parseGitLog);
+    )
+      .then(gitParser.parseGitLog)
+      .then((stashes) => {
+        return Promise.all(
+          stashes.map((stash) => {
+            const untrackedParentSha1 = stash.parents[2];
+            if (!untrackedParentSha1) {
+              return stash;
+            }
+
+            return gitPromise(
+              ['diff-tree', '--numstat', '-z', '--root', '--no-commit-id', untrackedParentSha1],
+              req.query.path
+            ).then((untrackedNumstat) => {
+              const untrackedFileLineDiffs = gitParser.parseFileLineDiffs(untrackedNumstat, {
+                isNew: true,
+                sha1: untrackedParentSha1,
+              });
+
+              stash.fileLineDiffs.push(...untrackedFileLineDiffs);
+              for (const fileLineDiff of untrackedFileLineDiffs) {
+                if (!isNaN(parseInt(fileLineDiff.additions, 10))) {
+                  stash.additions += fileLineDiff.additions;
+                }
+                if (!isNaN(parseInt(fileLineDiff.deletions, 10))) {
+                  stash.deletions += fileLineDiff.deletions;
+                }
+              }
+
+              return stash;
+            });
+          })
+        );
+      });
     jsonResultOrFailProm(res, task);
   });
 

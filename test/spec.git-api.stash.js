@@ -35,7 +35,31 @@ describe('git-api conflict rebase', function () {
       expect(res.length).to.be(1);
       expect(res[0].reflogId).to.be('0');
       expect(res[0].reflogName).to.be('stash@{0}');
+      const stashedFile = res[0].fileLineDiffs.find(
+        (fileLineDiff) => fileLineDiff.fileName == testFile1
+      );
+      expect(stashedFile).to.be.ok();
+      expect(stashedFile.isNew).to.be(true);
+      expect(stashedFile.sha1).to.be.ok();
     });
+  });
+
+  it('should show the stashed new file diff', () => {
+    return common
+      .get(req, '/stashes', { path: testDir })
+      .then((res) => {
+        const stashedFile = res[0].fileLineDiffs.find(
+          (fileLineDiff) => fileLineDiff.fileName == testFile1
+        );
+        return common.get(req, '/diff', {
+          path: testDir,
+          file: testFile1,
+          sha1: stashedFile.sha1,
+        });
+      })
+      .then((res) => {
+        expect(res.indexOf(`diff --git a/${testFile1} b/${testFile1}`)).to.be.above(-1);
+      });
   });
 
   it('should be possible to drop stash', () => {

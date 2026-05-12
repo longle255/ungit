@@ -44,6 +44,56 @@ exports.parseGitStatus = (text) => {
 const fileChangeRegex =
   /(?<additions>[\d-]+)\t(?<deletions>[\d-]+)\t((?<fileName>[^\x00]+?)\x00|\x00(?<oldFileName>[^\x00]+?)\x00(?<newFileName>[^\x00]+?)\x00)/g;
 
+const parseNumstatValue = (value) => {
+  const parsedValue = parseInt(value, 10);
+  return isNaN(parsedValue) ? value : parsedValue;
+};
+
+const parseFileLineDiffs = (text, options) => {
+  options = options || {};
+  const fileLineDiffs = [];
+  fileChangeRegex.lastIndex = 0;
+
+  while (text[fileChangeRegex.lastIndex] && text[fileChangeRegex.lastIndex] !== '\x00') {
+    const match = fileChangeRegex.exec(text);
+    const fileName = match.groups.fileName || match.groups.newFileName;
+    const oldFileName = match.groups.oldFileName || match.groups.fileName;
+    let displayName;
+    if (match.groups.oldFileName) {
+      displayName = `${match.groups.oldFileName} → ${match.groups.newFileName}`;
+    } else {
+      displayName = fileName;
+    }
+
+    const fileLineDiff = {
+      additions: parseNumstatValue(match.groups.additions),
+      deletions: parseNumstatValue(match.groups.deletions),
+      fileName: fileName,
+      oldFileName: oldFileName,
+      displayName: displayName,
+      type: fileType(fileName),
+    };
+
+    if (options.isNew) fileLineDiff.isNew = options.isNew;
+    if (options.sha1) fileLineDiff.sha1 = options.sha1;
+
+    fileLineDiffs.push(fileLineDiff);
+  }
+
+  return fileLineDiffs;
+};
+
+const addFileLineDiffStats = (commit, fileLineDiffs) => {
+  for (const fileLineDiff of fileLineDiffs) {
+    if (!isNaN(parseInt(fileLineDiff.additions, 10))) {
+      commit.additions += fileLineDiff.additions;
+    }
+    if (!isNaN(parseInt(fileLineDiff.deletions, 10))) {
+      commit.deletions += fileLineDiff.deletions;
+    }
+  }
+};
+
 exports.parseGitStatusNumstat = (text) => {
   const result = {};
   fileChangeRegex.lastIndex = 0;
@@ -57,6 +107,8 @@ exports.parseGitStatusNumstat = (text) => {
   }
   return result;
 };
+
+exports.parseFileLineDiffs = parseFileLineDiffs;
 
 const authorRegexp = /([^<]+)<([^>]+)>/;
 const gitLogHeaders = {
@@ -170,35 +222,10 @@ exports.parseGitLog = (data) => {
     if (row[0] === '\x00') {
       row = row.slice(1);
     }
-    fileChangeRegex.lastIndex = 0;
-    while (row[fileChangeRegex.lastIndex] && row[fileChangeRegex.lastIndex] !== '\x00') {
-      const match = fileChangeRegex.exec(row);
-      const fileName = match.groups.fileName || match.groups.newFileName;
-      const oldFileName = match.groups.oldFileName || match.groups.fileName;
-      let displayName;
-      if (match.groups.oldFileName) {
-        displayName = `${match.groups.oldFileName} → ${match.groups.newFileName}`;
-      } else {
-        displayName = fileName;
-      }
-      currentCommmit.fileLineDiffs.push({
-        additions: match.groups.additions,
-        deletions: match.groups.deletions,
-        fileName: fileName,
-        oldFileName: oldFileName,
-        displayName: displayName,
-        type: fileType(fileName),
-      });
-    }
+    const fileLineDiffs = parseFileLineDiffs(row);
+    currentCommmit.fileLineDiffs.push(...fileLineDiffs);
     const nextRow = row.slice(fileChangeRegex.lastIndex + 1);
-    for (const fileLineDiff of currentCommmit.fileLineDiffs) {
-      if (!isNaN(parseInt(fileLineDiff.additions, 10))) {
-        currentCommmit.additions += fileLineDiff.additions = parseInt(fileLineDiff.additions, 10);
-      }
-      if (!isNaN(parseInt(fileLineDiff.deletions, 10))) {
-        currentCommmit.deletions += fileLineDiff.deletions = parseInt(fileLineDiff.deletions, 10);
-      }
-    }
+    addFileLineDiffStats(currentCommmit, fileLineDiffs);
     parser = parseCommitLine;
     if (nextRow) {
       parser(nextRow, index);

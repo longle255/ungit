@@ -10,10 +10,11 @@ class CommitLineDiff {
     this.oldFileName = ko.observable(fileLineDiff.oldFileName);
     this.displayName = ko.observable(fileLineDiff.displayName);
     this.fileType = fileLineDiff.type;
+    this.isNew = ko.observable(!!fileLineDiff.isNew);
     this.isShowingDiffs = ko.observable(false);
     this.repoPath = args.repoPath;
     this.server = args.server;
-    this.sha1 = args.sha1;
+    this.sha1 = fileLineDiff.sha1 || args.sha1;
     this.textDiffType = args.textDiffType;
     this.wordWrap = args.wordWrap;
     this.whiteSpace = args.whiteSpace;
