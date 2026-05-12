@@ -1,6 +1,7 @@
 const ko = require('knockout');
 const components = require('ungit-components');
 const programEvents = require('ungit-program-events');
+const octicons = require('octicons');
 
 class CommitLineDiff {
   constructor(args, fileLineDiff) {
@@ -18,6 +19,9 @@ class CommitLineDiff {
     this.textDiffType = args.textDiffType;
     this.wordWrap = args.wordWrap;
     this.whiteSpace = args.whiteSpace;
+    this.applyFile = args.applyFile;
+    this.canApplyFile = ko.observable(typeof this.applyFile === 'function');
+    this.applyIcon = octicons.pencil.toSVG({ height: 14 });
     this.specificDiff = ko.observable(this.getSpecificDiff());
   }
 
@@ -38,6 +42,10 @@ class CommitLineDiff {
   fileNameClick() {
     this.isShowingDiffs(!this.isShowingDiffs());
     programEvents.dispatch({ event: 'graph-render' });
+  }
+
+  applyFileClick() {
+    this.applyFile(this.fileName());
   }
 }
 

@@ -48,6 +48,15 @@
         )
       </span>
       <span class="new" data-bind="visible: isNew">New</span>
+      <button
+        type="button"
+        class="btn btn-default btn-xs commit-diff-apply-file"
+        data-bind="visible: canApplyFile, html: applyIcon, click: applyFileClick, clickBubble: false"
+        data-toggle="tooltip"
+        data-placement="bottom"
+        data-container="body"
+        title="Apply this file from stash"
+      ></button>
     </div>
     <div class="diffContainer commit-line-diffs" data-bind="component: specificDiff"></div>
   </div>

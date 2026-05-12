@@ -62,6 +62,91 @@ describe('git-api conflict rebase', function () {
       });
   });
 
+  it('should be possible to apply one tracked file from a stash and keep the stash', () => {
+    const firstFile = 'smalltestfile.txt';
+    const secondFile = 'secondfile.txt';
+    let repoPath;
+
+    return common
+      .createSmallRepo(req)
+      .then((dir) => {
+        repoPath = dir;
+        return common.post(req, '/testing/createfile', {
+          file: path.join(repoPath, secondFile),
+          content: 'second file base\n',
+        });
+      })
+      .then(() =>
+        common.post(req, '/commit', {
+          path: repoPath,
+          message: 'Add second file',
+          files: [{ name: secondFile }],
+        })
+      )
+      .then(() =>
+        common.post(req, '/testing/changefile', {
+          file: path.join(repoPath, firstFile),
+          content: 'first file stashed change\n',
+        })
+      )
+      .then(() =>
+        common.post(req, '/testing/changefile', {
+          file: path.join(repoPath, secondFile),
+          content: 'second file stashed change\n',
+        })
+      )
+      .then(() => common.post(req, '/stashes', { path: repoPath }))
+      .then(() => common.post(req, '/stashes/0/files', { path: repoPath, file: firstFile }))
+      .then(() => common.get(req, '/status', { path: repoPath }))
+      .then((res) => {
+        expect(res.files[firstFile]).to.be.ok();
+        expect(res.files[secondFile]).to.be(undefined);
+      })
+      .then(() => common.get(req, '/stashes', { path: repoPath }))
+      .then((res) => {
+        expect(res.length).to.be(1);
+        expect(
+          res[0].fileLineDiffs.some((fileLineDiff) => fileLineDiff.fileName == firstFile)
+        ).to.be(true);
+      });
+  });
+
+  it('should be possible to apply one untracked file from a stash and keep the stash', () => {
+    const firstFile = 'first-untracked.txt';
+    const secondFile = 'second-untracked.txt';
+    let repoPath;
+
+    return common
+      .createSmallRepo(req)
+      .then((dir) => {
+        repoPath = dir;
+        return common.post(req, '/testing/createfile', {
+          file: path.join(repoPath, firstFile),
+          content: 'first untracked stashed file\n',
+        });
+      })
+      .then(() =>
+        common.post(req, '/testing/createfile', {
+          file: path.join(repoPath, secondFile),
+          content: 'second untracked stashed file\n',
+        })
+      )
+      .then(() => common.post(req, '/stashes', { path: repoPath }))
+      .then(() => common.post(req, '/stashes/0/files', { path: repoPath, file: firstFile }))
+      .then(() => common.get(req, '/status', { path: repoPath }))
+      .then((res) => {
+        expect(res.files[firstFile]).to.be.ok();
+        expect(res.files[secondFile]).to.be(undefined);
+      })
+      .then(() => common.get(req, '/stashes', { path: repoPath }))
+      .then((res) => {
+        expect(res.length).to.be(1);
+        expect(
+          res[0].fileLineDiffs.some((fileLineDiff) => fileLineDiff.fileName == firstFile)
+        ).to.be(true);
+      });
+  });
+
   it('should be possible to drop stash', () => {
     return common.delete(req, '/stashes/0', { path: testDir });
   });

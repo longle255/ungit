@@ -1009,6 +1009,20 @@ exports.registerApi = (env) => {
       .finally(emitWorkingTreeChanged.bind(null, req.body.path));
   });
 
+  app.post(
+    `${exports.pathPrefix}/stashes/:id/files`,
+    ensureAuthenticated,
+    ensurePathExists,
+    (req, res) => {
+      jsonResultOrFailProm(
+        res,
+        gitPromise.applyStashedFile(req.body.path, req.params.id, req.body.file)
+      )
+        .finally(emitGitDirectoryChanged.bind(null, req.body.path))
+        .finally(emitWorkingTreeChanged.bind(null, req.body.path));
+    }
+  );
+
   app.delete(
     `${exports.pathPrefix}/stashes/:id`,
     ensureAuthenticated,

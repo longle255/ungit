@@ -25,6 +25,7 @@ class StashItemViewModel {
         repoPath: stash.repoPath,
         server: stash.server,
         showDiffButtons: ko.observable(true),
+        applyFile: this.applyFile.bind(this),
       })
     );
     this.dropIcon = octicons.x.toSVG({ height: 18 });
@@ -34,6 +35,12 @@ class StashItemViewModel {
   apply() {
     this.server
       .delPromise(`/stashes/${this.id}`, { path: this.stash.repoPath(), apply: true })
+      .catch((e) => this.server.unhandledRejection(e));
+  }
+
+  applyFile(file) {
+    this.server
+      .postPromise(`/stashes/${this.id}/files`, { path: this.stash.repoPath(), file })
       .catch((e) => this.server.unhandledRejection(e));
   }
 
