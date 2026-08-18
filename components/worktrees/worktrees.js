@@ -8,6 +8,7 @@ class WorktreesViewModel {
   constructor(server, repoPath) {
     this.server = server;
     this.repoPath = repoPath;
+    this._loadPromise = null;
     this.worktrees = ko.observableArray([]);
     this.isLoading = ko.observable(false);
     this.error = ko.observable();
@@ -19,9 +20,11 @@ class WorktreesViewModel {
   }
 
   loadWorktrees() {
+    if (this._loadPromise) return this._loadPromise;
+
     this.isLoading(true);
     this.error(null);
-    return this.server
+    this._loadPromise = this.server
       .getPromise('/worktrees', { path: this.repoPath() })
       .then((worktrees) => {
         this.worktrees(worktrees || []);
@@ -31,13 +34,15 @@ class WorktreesViewModel {
       })
       .finally(() => {
         this.isLoading(false);
+        this._loadPromise = null;
       });
+    return this._loadPromise;
   }
 
   onProgramEvent(event) {
     if (event.event === 'create-worktree') {
       this.openCreateForm(event.branch);
-    } else if (event.event === 'worktree-changed' || event.event === 'git-directory-changed') {
+    } else if (event.event === 'worktree-changed') {
       this.loadWorktrees();
     }
   }

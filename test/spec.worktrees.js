@@ -161,6 +161,31 @@ describe('worktrees component', () => {
     expect(calls).to.eql([{ url: '/worktrees', args: { path: '/repos/SleepyCats' } }]);
   });
 
+  it('reuses an in-flight worktree request', async () => {
+    let resolveRequest;
+    const calls = [];
+    const request = new Promise((resolve) => {
+      resolveRequest = resolve;
+    });
+    const { viewModel } = createWorktreesViewModel({
+      server: {
+        getPromise: (url, args) => {
+          calls.push({ url, args });
+          return request;
+        },
+      },
+    });
+
+    const firstLoad = viewModel.loadWorktrees();
+    const secondLoad = viewModel.loadWorktrees();
+
+    expect(secondLoad).to.be(firstLoad);
+    expect(calls).to.eql([{ url: '/worktrees', args: { path: '/repos/SleepyCats' } }]);
+
+    resolveRequest([]);
+    await firstLoad;
+  });
+
   it('identifies the current worktree', () => {
     const { viewModel } = createWorktreesViewModel();
 

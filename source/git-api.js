@@ -28,14 +28,23 @@ exports.registerApi = (env) => {
   if (io) {
     io.on('connection', (socket) => {
       socket.on('disconnect', () => {
+        socket.watchRequestId = (socket.watchRequestId || 0) + 1;
         stopDirectoryWatch(socket);
       });
       socket.on('watch', async (data) => {
+        const watchRequestId = (socket.watchRequestId || 0) + 1;
+        socket.watchRequestId = watchRequestId;
         stopDirectoryWatch(socket); // clean possibly lingering connections
         socket.watcherPath = path.normalize(data.path);
         socket.join(socket.watcherPath); // join room for this path
 
         const watcher = await watchRepo(socket.watcherPath);
+        // A newer watch request may have arrived while this watcher was being created.
+        // Do not let the stale watcher continue emitting refresh events.
+        if (socket.watchRequestId !== watchRequestId) {
+          watcher.close();
+          return;
+        }
         watcher.on('workdir', (changedPath) => {
           logger.info(`${changedPath} triggered workdir refresh for ${socket.watcherPath}`);
           emitWorkingTreeChanged(socket.watcherPath);
@@ -1043,22 +1052,27 @@ exports.registerApi = (env) => {
       res,
       gitPromise(['worktree', 'list', '--porcelain'], req.query.path)
         .then(gitParser.parseWorktreeList)
-        .then(async (worktrees) => {
-          for (const worktree of worktrees) {
-            try {
-              const status = await gitPromise(['status', '--porcelain'], worktree.path);
-              if (!status || status.trim() === '') {
-                worktree.status = 'clean';
-              } else if (status.includes('UU ') || status.includes('AA ')) {
-                worktree.status = 'conflicts';
-              } else {
-                worktree.status = 'dirty';
+        .then((worktrees) => {
+          return Promise.all(
+            worktrees.map(async (worktree) => {
+              try {
+                const statusArgs = config.isGitOptionalLocks
+                  ? ['--no-optional-locks', 'status', '--porcelain']
+                  : ['status', '--porcelain'];
+                const status = await gitPromise(statusArgs, worktree.path);
+                if (!status || status.trim() === '') {
+                  worktree.status = 'clean';
+                } else if (status.includes('UU ') || status.includes('AA ')) {
+                  worktree.status = 'conflicts';
+                } else {
+                  worktree.status = 'dirty';
+                }
+              } catch {
+                worktree.status = 'unknown';
               }
-            } catch {
-              worktree.status = 'unknown';
-            }
-          }
-          return worktrees;
+              return worktree;
+            })
+          );
         })
     );
   });

@@ -405,7 +405,7 @@ if (module.exports.alwaysLoadActiveBranch) {
   module.exports.maxActiveBranchSearchIteration = 25;
 }
 
-module.exports.isGitOptionalLocks = semver.satisfies(module.exports.gitVersion, '2.15.0');
+module.exports.isGitOptionalLocks = semver.satisfies(module.exports.gitVersion, '>=2.15.0');
 
 if (argvConfig.$0.endsWith('mocha')) {
   console.warn('Running mocha test run, overriding few test variables...');

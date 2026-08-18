@@ -201,6 +201,22 @@ describe('graph worktree refs', () => {
     expect(featureRef.displayHtml()).to.contain('worktree-ref-marker');
   });
 
+  it('only refreshes worktrees for relevant repository events', async () => {
+    const { calls, viewModel } = createGraphViewModel();
+    await viewModel._worktreesRequest;
+    const initialWorktreeCalls = calls.filter((url) => url === '/worktrees').length;
+
+    viewModel.onProgramEvent({ event: 'git-directory-changed' });
+    expect(calls.filter((url) => url === '/worktrees').length).to.be(initialWorktreeCalls);
+
+    viewModel.onProgramEvent({ event: 'working-tree-changed' });
+    expect(calls.filter((url) => url === '/worktrees').length).to.be(initialWorktreeCalls);
+
+    viewModel.onProgramEvent({ event: 'worktree-changed' });
+    await viewModel._worktreesRequest;
+    expect(calls.filter((url) => url === '/worktrees').length).to.be(initialWorktreeCalls + 1);
+  });
+
   it('switches to another worktree instead of checking out its branch in the current path', async () => {
     const browsedTo = [];
     const RefViewModel = createRefViewModelClass({
