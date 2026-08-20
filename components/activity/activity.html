@@ -1,0 +1,70 @@
+<div class="git-activity" data-bind="visible: hasActivities">
+  <button
+    type="button"
+    class="git-activity-summary"
+    data-bind="click: toggle, attr: { 'aria-expanded': isOpen }"
+    aria-controls="git-activity-drawer"
+  >
+    <span class="git-activity-mark" data-bind="css: { running: activeCount() > 0 }">
+      <span data-bind="html: terminalIcon"></span>
+    </span>
+    <span class="git-activity-summary-copy">
+      <strong data-bind="text: summary"></strong>
+      <small data-bind="text: summaryDetail"></small>
+    </span>
+    <span class="git-activity-count" data-bind="visible: activeCount() > 1, text: activeCount"></span>
+    <span class="git-activity-chevron" data-bind="html: toggleIcon"></span>
+  </button>
+
+  <section id="git-activity-drawer" class="git-activity-drawer" data-bind="visible: isOpen" aria-label="Git activity">
+    <div class="git-activity-header">
+      <span>Git activity</span>
+      <button
+        type="button"
+        class="git-activity-icon-button"
+        data-bind="click: clearCompleted, visible: activeCount() < activities().length"
+        title="Clear completed operations"
+        aria-label="Clear completed operations"
+      >
+        <span data-bind="html: clearIcon"></span>
+      </button>
+      <button
+        type="button"
+        class="git-activity-icon-button"
+        data-bind="click: toggle"
+        title="Close Git activity"
+        aria-label="Close Git activity"
+      >
+        <span data-bind="html: closeIcon"></span>
+      </button>
+    </div>
+    <div class="git-activity-body">
+      <div class="git-activity-list" data-bind="foreach: activities">
+        <button
+          type="button"
+          class="git-activity-row"
+          data-bind="click: $parent.select, css: { selected: $parent.selectedActivity() === $data, failed: status() === 'failed' }"
+        >
+          <span class="git-activity-row-status" data-bind="css: status">
+            <span data-bind="visible: status() === 'finished', html: $parent.checkIcon"></span>
+            <span data-bind="visible: status() === 'failed', html: $parent.errorIcon"></span>
+            <span data-bind="visible: status() === 'running'" class="git-activity-spinner"></span>
+          </span>
+          <span class="git-activity-row-copy">
+            <strong data-bind="text: label"></strong>
+            <small data-bind="text: detail"></small>
+          </span>
+          <span class="git-activity-row-time" data-bind="text: durationLabel"></span>
+        </button>
+      </div>
+
+      <!-- ko if: selectedActivity -->
+      <div class="git-activity-output-header">
+        <span data-bind="text: selectedActivity().statusLabel"></span>
+        <span data-bind="text: selectedActivity().repoPath" class="git-activity-repo"></span>
+      </div>
+      <pre class="git-activity-output" role="log" aria-live="polite" data-bind="text: selectedActivity().output"></pre>
+      <!-- /ko -->
+    </div>
+  </section>
+</div>

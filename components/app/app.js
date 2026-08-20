@@ -15,6 +15,7 @@ class AppViewModel {
     if (window.location.search.indexOf('noheader=true') < 0) {
       this.header = components.create('header', { app: this });
     }
+    this.activity = components.create('activity', { server: server });
     this.modal = ko.observable(null);
     this.repoList = ko.observableArray(this.getRepoList()); // visitedRepositories is legacy, remove in the next version
     this.repoList.subscribe((newValue) => {
@@ -94,6 +95,9 @@ class AppViewModel {
       this.content().updateAnimationFrame(deltaT);
   }
   onProgramEvent(event) {
+    if (this.activity && this.activity.onProgramEvent) {
+      this.activity.onProgramEvent(event);
+    }
     if (event.event === 'request-credentials') {
       this._handleCredentialsRequested(event);
     } else if (event.event === 'request-remember-repo') {

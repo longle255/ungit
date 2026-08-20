@@ -46,4 +46,28 @@ describe('client server', () => {
       ['watch', { path: '/repos/SleepyCats-feature' }, undefined],
     ]);
   });
+
+  it('attaches an operation id to mutating requests', async () => {
+    const server = createServer();
+    server.socketId = 3;
+    server._httpJsonRequest = (request, callback) => {
+      expect(request.body.socketId).to.be(3);
+      expect(request.body.operationId).to.match(/^op-/);
+      callback(null, {});
+    };
+
+    await server.postPromise('/commit', { path: '/repos/SleepyCats' });
+  });
+
+  it('keeps socket id zero when creating operation requests', async () => {
+    const server = createServer();
+    server.socketId = 0;
+    server._httpJsonRequest = (request, callback) => {
+      expect(request.body.socketId).to.be(0);
+      expect(request.body.operationId).to.match(/^op-/);
+      callback(null, {});
+    };
+
+    await server.postPromise('/commit', { path: '/repos/SleepyCats' });
+  });
 });

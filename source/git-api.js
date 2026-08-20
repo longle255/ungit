@@ -213,7 +213,15 @@ exports.registerApi = (env) => {
     { maxWait: 1000 }
   );
 
-  const autoStashExecuteAndPop = (commands, repoPath, allowedCodes, outPipe, inPipe, timeout) => {
+  const autoStashExecuteAndPop = (
+    commands,
+    repoPath,
+    allowedCodes,
+    outPipe,
+    inPipe,
+    timeout,
+    operation
+  ) => {
     if (config.autoStashAndPop) {
       return gitPromise.stashExecuteAndPop(
         commands,
@@ -221,11 +229,79 @@ exports.registerApi = (env) => {
         allowedCodes,
         outPipe,
         inPipe,
-        timeout
+        timeout,
+        operation
       );
     } else {
-      return gitPromise(commands, repoPath, allowedCodes, outPipe, inPipe, timeout);
+      return gitPromise(commands, repoPath, allowedCodes, outPipe, inPipe, timeout, operation);
     }
+  };
+
+  const createOperation = (req, action, repoPath) => {
+    const operationId = req.body?.operationId ?? req.query?.operationId;
+    const socketId = req.body?.socketId ?? req.query?.socketId;
+    const socket =
+      operationId && socketId !== undefined && socketId !== null ? socketsById[socketId] : null;
+    if (!socket || typeof operationId !== 'string' || operationId.length > 100) return null;
+
+    const startedAt = Date.now();
+    let sequence = 0;
+    let ended = false;
+    const emit = (event, data) => {
+      if (ended) return;
+      socket.emit(event, {
+        operationId,
+        action,
+        repoPath,
+        sequence: sequence++,
+        ...data,
+      });
+    };
+
+    socket.emit('git-operation-started', {
+      operationId,
+      action,
+      repoPath,
+      startedAt,
+    });
+
+    return {
+      emit,
+      finish() {
+        if (ended) return;
+        ended = true;
+        socket.emit('git-operation-finished', {
+          operationId,
+          action,
+          repoPath,
+          duration: Date.now() - startedAt,
+        });
+      },
+      fail(error) {
+        if (ended) return;
+        ended = true;
+        socket.emit('git-operation-failed', {
+          operationId,
+          action,
+          repoPath,
+          duration: Date.now() - startedAt,
+          errorCode: error && error.errorCode,
+          message: error && (error.message || error.error),
+        });
+      },
+    };
+  };
+
+  const trackedOperation = (req, action, repoPath, taskFactory) => {
+    const operation = createOperation(req, action, repoPath);
+    let task;
+    try {
+      task = Promise.resolve(taskFactory(operation));
+    } catch (error) {
+      task = Promise.reject(error);
+    }
+    if (operation) task.then(operation.finish, operation.fail);
+    return task;
   };
 
   const jsonResultOrFailProm = (res, promise) => {
@@ -291,13 +367,16 @@ exports.registerApi = (env) => {
         commands.push('--recurse-submodules');
       }
 
-      const task = gitPromise({
-        commands: credentialsOption(req.body.socketId, url).concat(commands),
-        repoPath: req.body.path,
-        timeout: timeoutMs,
-      }).then(() => {
-        return { path: path.resolve(req.body.path, req.body.destinationDir) };
-      });
+      const task = trackedOperation(req, 'clone', req.body.path, (operation) =>
+        gitPromise({
+          commands: credentialsOption(req.body.socketId, url).concat(commands),
+          repoPath: req.body.path,
+          timeout: timeoutMs,
+          operation,
+        }).then(() => {
+          return { path: path.resolve(req.body.path, req.body.destinationDir) };
+        })
+      );
 
       jsonResultOrFailProm(res, task).finally(emitGitDirectoryChanged.bind(null, req.body.path));
     }
@@ -312,17 +391,20 @@ exports.registerApi = (env) => {
       // Allow a little longer timeout on fetch (10min)
       if (res.setTimeout) res.setTimeout(tenMinTimeoutMs);
 
-      const task = gitPromise({
-        commands: credentialsOption(req.query.socketId, req.query.remote).concat([
-          'fetch',
-          config.autoPruneOnFetch ? '--prune' : '',
-          '--',
-          req.query.remote,
-          req.query.ref ? req.query.ref : '',
-        ]),
-        repoPath: req.query.path,
-        timeout: tenMinTimeoutMs,
-      });
+      const task = trackedOperation(req, 'fetch', req.query.path, (operation) =>
+        gitPromise({
+          commands: credentialsOption(req.query.socketId, req.query.remote).concat([
+            'fetch',
+            config.autoPruneOnFetch ? '--prune' : '',
+            '--',
+            req.query.remote,
+            req.query.ref ? req.query.ref : '',
+          ]),
+          repoPath: req.query.path,
+          timeout: tenMinTimeoutMs,
+          operation,
+        })
+      );
 
       jsonResultOrFailProm(res, task).finally(emitGitDirectoryChanged.bind(null, req.query.path));
     }
@@ -336,17 +418,20 @@ exports.registerApi = (env) => {
     (req, res) => {
       // Allow a little longer timeout on push (10min)
       if (res.setTimeout) res.setTimeout(tenMinTimeoutMs);
-      const task = gitPromise({
-        commands: credentialsOption(req.body.socketId, req.body.remote).concat([
-          'push',
-          req.body.remote,
-          (req.body.refSpec ? req.body.refSpec : 'HEAD') +
-            (req.body.remoteBranch ? `:${req.body.remoteBranch}` : ''),
-          req.body.force ? '-f' : '',
-        ]),
-        repoPath: req.body.path,
-        timeout: tenMinTimeoutMs,
-      });
+      const task = trackedOperation(req, 'push', req.body.path, (operation) =>
+        gitPromise({
+          commands: credentialsOption(req.body.socketId, req.body.remote).concat([
+            'push',
+            req.body.remote,
+            (req.body.refSpec ? req.body.refSpec : 'HEAD') +
+              (req.body.remoteBranch ? `:${req.body.remoteBranch}` : ''),
+            req.body.force ? '-f' : '',
+          ]),
+          repoPath: req.body.path,
+          timeout: tenMinTimeoutMs,
+          operation,
+        })
+      );
 
       jsonResultOrFailProm(res, task).finally(emitGitDirectoryChanged.bind(null, req.body.path));
     }
@@ -355,7 +440,17 @@ exports.registerApi = (env) => {
   app.post(`${exports.pathPrefix}/reset`, ensureAuthenticated, ensurePathExists, (req, res) => {
     jsonResultOrFailProm(
       res,
-      autoStashExecuteAndPop(['reset', `--${req.body.mode}`, req.body.to], req.body.path)
+      trackedOperation(req, 'reset', req.body.path, (operation) =>
+        autoStashExecuteAndPop(
+          ['reset', `--${req.body.mode}`, req.body.to],
+          req.body.path,
+          null,
+          null,
+          null,
+          null,
+          operation
+        )
+      )
     )
       .then(emitGitDirectoryChanged.bind(null, req.body.path))
       .then(emitWorkingTreeChanged.bind(null, req.body.path));
@@ -418,12 +513,15 @@ exports.registerApi = (env) => {
   app.post(`${exports.pathPrefix}/commit`, ensureAuthenticated, ensurePathExists, (req, res) => {
     jsonResultOrFailProm(
       res,
-      gitPromise.commit(
-        req.body.path,
-        req.body.amend,
-        req.body.emptyCommit,
-        req.body.message,
-        req.body.files
+      trackedOperation(req, 'commit', req.body.path, (operation) =>
+        gitPromise.commit(
+          req.body.path,
+          req.body.amend,
+          req.body.emptyCommit,
+          req.body.message,
+          req.body.files,
+          operation
+        )
       )
     )
       .then(emitGitDirectoryChanged.bind(null, req.body.path))
@@ -676,7 +774,12 @@ exports.registerApi = (env) => {
       ? ['checkout', '-b', req.body.name.trim(), req.body.sha1]
       : ['checkout', req.body.name.trim()];
 
-    jsonResultOrFailProm(res, autoStashExecuteAndPop(arg, req.body.path))
+    jsonResultOrFailProm(
+      res,
+      trackedOperation(req, 'checkout', req.body.path, (operation) =>
+        autoStashExecuteAndPop(arg, req.body.path, null, null, null, null, operation)
+      )
+    )
       .then(emitGitDirectoryChanged.bind(null, req.body.path))
       .then(emitWorkingTreeChanged.bind(null, req.body.path));
   });
@@ -688,7 +791,17 @@ exports.registerApi = (env) => {
     (req, res) => {
       jsonResultOrFailProm(
         res,
-        autoStashExecuteAndPop(['cherry-pick', req.body.name.trim()], req.body.path)
+        trackedOperation(req, 'cherry-pick', req.body.path, (operation) =>
+          autoStashExecuteAndPop(
+            ['cherry-pick', req.body.name.trim()],
+            req.body.path,
+            null,
+            null,
+            null,
+            null,
+            operation
+          )
+        )
       )
         .then(emitGitDirectoryChanged.bind(null, req.body.path))
         .then(emitWorkingTreeChanged.bind(null, req.body.path));
@@ -739,7 +852,13 @@ exports.registerApi = (env) => {
   app.post(`${exports.pathPrefix}/merge`, ensureAuthenticated, ensurePathExists, (req, res) => {
     jsonResultOrFailProm(
       res,
-      gitPromise(['merge', config.noFFMerge ? '--no-ff' : '', req.body.with.trim()], req.body.path)
+      trackedOperation(req, 'merge', req.body.path, (operation) =>
+        gitPromise({
+          commands: ['merge', config.noFFMerge ? '--no-ff' : '', req.body.with.trim()],
+          repoPath: req.body.path,
+          operation,
+        })
+      )
     )
       .finally(emitGitDirectoryChanged.bind(null, req.body.path))
       .finally(emitWorkingTreeChanged.bind(null, req.body.path));
@@ -756,7 +875,12 @@ exports.registerApi = (env) => {
         inPipe: req.body.message,
       };
 
-      jsonResultOrFailProm(res, gitPromise(args))
+      jsonResultOrFailProm(
+        res,
+        trackedOperation(req, 'merge-continue', req.body.path, (operation) =>
+          gitPromise({ ...args, operation })
+        )
+      )
         .finally(emitGitDirectoryChanged.bind(null, req.body.path))
         .finally(emitWorkingTreeChanged.bind(null, req.body.path));
     }
@@ -776,14 +900,29 @@ exports.registerApi = (env) => {
   app.post(`${exports.pathPrefix}/squash`, ensureAuthenticated, ensurePathExists, (req, res) => {
     jsonResultOrFailProm(
       res,
-      gitPromise(['merge', '--squash', req.body.target.trim()], req.body.path)
+      trackedOperation(req, 'squash', req.body.path, (operation) =>
+        gitPromise({
+          commands: ['merge', '--squash', req.body.target.trim()],
+          repoPath: req.body.path,
+          operation,
+        })
+      )
     )
       .finally(emitGitDirectoryChanged.bind(null, req.body.path))
       .finally(emitWorkingTreeChanged.bind(null, req.body.path));
   });
 
   app.post(`${exports.pathPrefix}/rebase`, ensureAuthenticated, ensurePathExists, (req, res) => {
-    jsonResultOrFailProm(res, gitPromise(['rebase', req.body.onto.trim()], req.body.path))
+    jsonResultOrFailProm(
+      res,
+      trackedOperation(req, 'rebase', req.body.path, (operation) =>
+        gitPromise({
+          commands: ['rebase', req.body.onto.trim()],
+          repoPath: req.body.path,
+          operation,
+        })
+      )
+    )
       .finally(emitGitDirectoryChanged.bind(null, req.body.path))
       .finally(emitWorkingTreeChanged.bind(null, req.body.path));
   });
@@ -793,7 +932,16 @@ exports.registerApi = (env) => {
     ensureAuthenticated,
     ensurePathExists,
     (req, res) => {
-      jsonResultOrFailProm(res, gitPromise(['rebase', '--continue'], req.body.path))
+      jsonResultOrFailProm(
+        res,
+        trackedOperation(req, 'rebase-continue', req.body.path, (operation) =>
+          gitPromise({
+            commands: ['rebase', '--continue'],
+            repoPath: req.body.path,
+            operation,
+          })
+        )
+      )
         .finally(emitGitDirectoryChanged.bind(null, req.body.path))
         .finally(emitWorkingTreeChanged.bind(null, req.body.path));
     }
@@ -833,7 +981,9 @@ exports.registerApi = (env) => {
         '--no-prompt',
         req.body.file,
       ];
-      gitPromise(commands, req.body.path);
+      trackedOperation(req, 'mergetool', req.body.path, (operation) =>
+        gitPromise({ commands, repoPath: req.body.path, operation })
+      );
       // Send immediate response, this is because merging may take a long time
       // and there is no need to wait for it to finish.
       res.json({});
@@ -1012,7 +1162,13 @@ exports.registerApi = (env) => {
   app.post(`${exports.pathPrefix}/stashes`, ensureAuthenticated, ensurePathExists, (req, res) => {
     jsonResultOrFailProm(
       res,
-      gitPromise(['stash', 'save', '--include-untracked', req.body.message || ''], req.body.path)
+      trackedOperation(req, 'stash', req.body.path, (operation) =>
+        gitPromise({
+          commands: ['stash', 'save', '--include-untracked', req.body.message || ''],
+          repoPath: req.body.path,
+          operation,
+        })
+      )
     )
       .finally(emitGitDirectoryChanged.bind(null, req.body.path))
       .finally(emitWorkingTreeChanged.bind(null, req.body.path));

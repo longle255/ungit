@@ -1,0 +1,9 @@
+{
+  "exports": {
+    "knockoutTemplates": {
+      "activity": "activity.html"
+    },
+    "javascript": "activity.bundle.js",
+    "css": "activity.css"
+  }
+}

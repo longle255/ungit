@@ -66,6 +66,11 @@ const gitExecutorProm = (args, retryCount) => {
         env: env,
       };
       const gitProcess = child_process.spawn(gitBin, args.commands, procOpts);
+      const emitOperationEvent = (event, data) => {
+        if (args.operation && typeof args.operation.emit === 'function') {
+          args.operation.emit(event, data);
+        }
+      };
       timeoutTimer = setTimeout(() => {
         if (!timeoutTimer) return;
         timeoutTimer = null;
@@ -77,15 +82,24 @@ const gitExecutorProm = (args, retryCount) => {
       if (args.outPipe) {
         gitProcess.stdout.pipe(args.outPipe);
       } else {
-        gitProcess.stdout.on('data', (data) => (stdout += data.toString()));
+        gitProcess.stdout.on('data', (data) => {
+          const text = data.toString();
+          stdout += text;
+          emitOperationEvent('git-operation-output', { stream: 'stdout', text: text });
+        });
       }
       if (args.inPipe) {
         gitProcess.stdin.end(args.inPipe);
       }
-      gitProcess.stderr.on('data', (data) => (stderr += data.toString()));
+      gitProcess.stderr.on('data', (data) => {
+        const text = data.toString();
+        stderr += text;
+        emitOperationEvent('git-operation-output', { stream: 'stderr', text: text });
+      });
       gitProcess.on('error', (error) => (rejectedError = error));
 
       gitProcess.on('close', (code) => {
+        emitOperationEvent('git-operation-step', { code: code });
         if (config.logGitCommands)
           logger.info(
             `git result (first 400 bytes): ${args.commands.join(' ')}\n${stderr.slice(
@@ -145,7 +159,7 @@ const gitExecutorProm = (args, retryCount) => {
  *   getGitExecuteTask(['show'], '/tmp');
  *
  */
-const git = (commands, repoPath, allowError, outPipe, inPipe, timeout) => {
+const git = (commands, repoPath, allowError, outPipe, inPipe, timeout, operation) => {
   let args = {};
   if (Array.isArray(commands)) {
     args.commands = commands;
@@ -154,6 +168,7 @@ const git = (commands, repoPath, allowError, outPipe, inPipe, timeout) => {
     args.inPipe = inPipe;
     args.allowError = allowError;
     args.timeout = timeout;
+    args.operation = operation;
   } else {
     args = commands;
   }
@@ -347,10 +362,10 @@ git.resolveConflicts = (repoPath, files) => {
   });
 };
 
-git.stashExecuteAndPop = (commands, repoPath, allowError, outPipe, inPipe, timeout) => {
+git.stashExecuteAndPop = (commands, repoPath, allowError, outPipe, inPipe, timeout, operation) => {
   let hadLocalChanges = true;
 
-  return git(['stash'], repoPath)
+  return git(['stash'], repoPath, null, null, null, null, operation)
     .catch((err) => {
       if (err.stderr.indexOf('You do not have the initial commit yet') != -1) {
         hadLocalChanges = err.stderr.indexOf('You do not have the initial commit yet') == -1;
@@ -362,10 +377,12 @@ git.stashExecuteAndPop = (commands, repoPath, allowError, outPipe, inPipe, timeo
       if (!result || result.indexOf('No local changes to save') != -1) {
         hadLocalChanges = false;
       }
-      return git(commands, repoPath, allowError, outPipe, inPipe, timeout);
+      return git(commands, repoPath, allowError, outPipe, inPipe, timeout, operation);
     })
     .then(() => {
-      return hadLocalChanges ? git(['stash', 'pop'], repoPath) : null;
+      return hadLocalChanges
+        ? git(['stash', 'pop'], repoPath, null, null, null, null, operation)
+        : null;
     });
 };
 
@@ -528,7 +545,7 @@ git.applyStashedFile = (repoPath, stashId, filename) => {
     });
 };
 
-git.commit = (repoPath, amend, emptyCommit, message, files) => {
+git.commit = (repoPath, amend, emptyCommit, message, files, operation) => {
   return new Promise((resolve, reject) => {
     if (message == undefined) {
       reject({ error: 'Must specify commit message' });
@@ -602,7 +619,9 @@ git.commit = (repoPath, amend, emptyCommit, message, files) => {
         repoPath,
         null,
         null,
-        message
+        message,
+        null,
+        operation
       );
     })
     .catch((err) => {

@@ -19,6 +19,7 @@ if (ungit.config.isDisableProgressBar) {
 function Server() {
   this.isInternetConnected = true;
   this.isUnloading = false;
+  this._operationCounter = 0;
   window.addEventListener('beforeunload', () => (this.isUnloading = true));
 }
 module.exports = Server;
@@ -48,6 +49,11 @@ Server.prototype.initSocket = function () {
   });
   this.socket.on('git-directory-changed', function () {
     programEvents.dispatch({ event: 'git-directory-changed' });
+  });
+  ['started', 'output', 'step', 'finished', 'failed'].forEach(function (phase) {
+    self.socket.on('git-operation-' + phase, function (data) {
+      programEvents.dispatch({ event: 'git-operation-' + phase, data: data });
+    });
   });
   this.socket.on('request-credentials', function (args) {
     self._getCredentials(function (credentials) {
@@ -125,6 +131,9 @@ Server.prototype.watchRepository = function (repositoryPath, callback) {
 Server.prototype.queryPromise = function (method, path, body) {
   var self = this;
   if (body) body.socketId = this.socketId;
+  if (body && (method == 'POST' || method == 'PUT' || method == 'DELETE' || path == '/fetch')) {
+    body.operationId = this._nextOperationId();
+  }
   var request = {
     method: method,
     url: rootPath + '/api' + path,
@@ -169,6 +178,17 @@ Server.prototype.queryPromise = function (method, path, body) {
       }
     });
   }).finally(() => nprogress.done(true));
+};
+Server.prototype._nextOperationId = function () {
+  this._operationCounter += 1;
+  return (
+    'op-' +
+    Date.now().toString(36) +
+    '-' +
+    this._operationCounter.toString(36) +
+    '-' +
+    Math.random().toString(36).slice(2, 8)
+  );
 };
 Server.prototype.getPromise = function (url, arg) {
   return this.queryPromise('GET', url, arg);

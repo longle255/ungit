@@ -23,6 +23,9 @@ ungit.logger = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 var components = require('ungit-components');
+// Activity is consumed by the core app shell; register it in the common bundle as
+// well as its plugin bundle so startup does not depend on plugin script ordering.
+require('../../components/activity/activity.js');
 var Server = require('./server');
 var programEvents = require('ungit-program-events');
 var navigation = require('ungit-navigation');
