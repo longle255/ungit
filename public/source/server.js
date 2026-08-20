@@ -25,6 +25,7 @@ module.exports = Server;
 
 Server.prototype.initSocket = function () {
   var self = this;
+  this._watchedRepository = undefined;
   this.socket = io('', {
     path: rootPath + '/socket.io',
   });
@@ -35,6 +36,7 @@ Server.prototype.initSocket = function () {
     });
   });
   this.socket.on('disconnect', function () {
+    self._watchedRepository = undefined;
     self._onDisconnect();
   });
   this.socket.on('connected', function (data) {
@@ -116,6 +118,8 @@ Server.prototype._getCredentials = function (callback, args) {
   });
 };
 Server.prototype.watchRepository = function (repositoryPath, callback) {
+  if (this._watchedRepository === repositoryPath) return;
+  this._watchedRepository = repositoryPath;
   this.socket.emit('watch', { path: repositoryPath }, callback);
 };
 Server.prototype.queryPromise = function (method, path, body) {

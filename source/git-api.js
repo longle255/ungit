@@ -28,14 +28,23 @@ exports.registerApi = (env) => {
   if (io) {
     io.on('connection', (socket) => {
       socket.on('disconnect', () => {
+        socket.watchRequestId = (socket.watchRequestId || 0) + 1;
         stopDirectoryWatch(socket);
       });
       socket.on('watch', async (data) => {
+        const watchRequestId = (socket.watchRequestId || 0) + 1;
+        socket.watchRequestId = watchRequestId;
         stopDirectoryWatch(socket); // clean possibly lingering connections
         socket.watcherPath = path.normalize(data.path);
         socket.join(socket.watcherPath); // join room for this path
 
         const watcher = await watchRepo(socket.watcherPath);
+        // A newer watch request may have arrived while this watcher was being created.
+        // Do not let the stale watcher continue emitting refresh events.
+        if (socket.watchRequestId !== watchRequestId) {
+          watcher.close();
+          return;
+        }
         watcher.on('workdir', (changedPath) => {
           logger.info(`${changedPath} triggered workdir refresh for ${socket.watcherPath}`);
           emitWorkingTreeChanged(socket.watcherPath);
@@ -146,6 +155,7 @@ exports.registerApi = (env) => {
     });
     await watcher.addGit(path.join(repoPath, 'HEAD'));
     await watcher.addGit(path.join(repoPath, 'index'));
+    await watcher.addGit(path.join(repoPath, 'worktrees'));
 
     return watcher;
   };
@@ -962,7 +972,40 @@ exports.registerApi = (env) => {
     const task = gitPromise(
       ['stash', 'list', '--decorate=full', '--pretty=fuller', '-z', '--parents', '--numstat'],
       req.query.path
-    ).then(gitParser.parseGitLog);
+    )
+      .then(gitParser.parseGitLog)
+      .then((stashes) => {
+        return Promise.all(
+          stashes.map((stash) => {
+            const untrackedParentSha1 = stash.parents[2];
+            if (!untrackedParentSha1) {
+              return stash;
+            }
+
+            return gitPromise(
+              ['diff-tree', '--numstat', '-z', '--root', '--no-commit-id', untrackedParentSha1],
+              req.query.path
+            ).then((untrackedNumstat) => {
+              const untrackedFileLineDiffs = gitParser.parseFileLineDiffs(untrackedNumstat, {
+                isNew: true,
+                sha1: untrackedParentSha1,
+              });
+
+              stash.fileLineDiffs.push(...untrackedFileLineDiffs);
+              for (const fileLineDiff of untrackedFileLineDiffs) {
+                if (!isNaN(parseInt(fileLineDiff.additions, 10))) {
+                  stash.additions += fileLineDiff.additions;
+                }
+                if (!isNaN(parseInt(fileLineDiff.deletions, 10))) {
+                  stash.deletions += fileLineDiff.deletions;
+                }
+              }
+
+              return stash;
+            });
+          })
+        );
+      });
     jsonResultOrFailProm(res, task);
   });
 
@@ -974,6 +1017,20 @@ exports.registerApi = (env) => {
       .finally(emitGitDirectoryChanged.bind(null, req.body.path))
       .finally(emitWorkingTreeChanged.bind(null, req.body.path));
   });
+
+  app.post(
+    `${exports.pathPrefix}/stashes/:id/files`,
+    ensureAuthenticated,
+    ensurePathExists,
+    (req, res) => {
+      jsonResultOrFailProm(
+        res,
+        gitPromise.applyStashedFile(req.body.path, req.params.id, req.body.file)
+      )
+        .finally(emitGitDirectoryChanged.bind(null, req.body.path))
+        .finally(emitWorkingTreeChanged.bind(null, req.body.path));
+    }
+  );
 
   app.delete(
     `${exports.pathPrefix}/stashes/:id`,
@@ -987,6 +1044,112 @@ exports.registerApi = (env) => {
       )
         .finally(emitGitDirectoryChanged.bind(null, req.query.path))
         .finally(emitWorkingTreeChanged.bind(null, req.query.path));
+    }
+  );
+
+  app.get(`${exports.pathPrefix}/worktrees`, ensureAuthenticated, ensurePathExists, (req, res) => {
+    jsonResultOrFailProm(
+      res,
+      gitPromise(['worktree', 'list', '--porcelain'], req.query.path)
+        .then(gitParser.parseWorktreeList)
+        .then((worktrees) => {
+          return Promise.all(
+            worktrees.map(async (worktree) => {
+              try {
+                const statusArgs = config.isGitOptionalLocks
+                  ? ['--no-optional-locks', 'status', '--porcelain']
+                  : ['status', '--porcelain'];
+                const status = await gitPromise(statusArgs, worktree.path);
+                if (!status || status.trim() === '') {
+                  worktree.status = 'clean';
+                } else if (status.includes('UU ') || status.includes('AA ')) {
+                  worktree.status = 'conflicts';
+                } else {
+                  worktree.status = 'dirty';
+                }
+              } catch {
+                worktree.status = 'unknown';
+              }
+              return worktree;
+            })
+          );
+        })
+    );
+  });
+
+  app.post(
+    `${exports.pathPrefix}/worktrees`,
+    ensureAuthenticated,
+    ensurePathExists,
+    async (req, res) => {
+      const { worktreePath, branch, createBranch } = req.body;
+      const repoPath = req.body.path || req.query.path;
+
+      if (!worktreePath || !branch) {
+        return res.status(400).json({ error: 'path and branch are required' });
+      }
+
+      try {
+        await fs.access(worktreePath);
+        return res.status(400).json({ error: 'path already exists' });
+      } catch {
+        // path does not exist, continue
+      }
+
+      const args = ['worktree', 'add'];
+      if (createBranch) {
+        args.push('-b', branch, worktreePath);
+      } else {
+        args.push(worktreePath, branch);
+      }
+
+      jsonResultOrFailProm(
+        res,
+        gitPromise(args, repoPath).then(() =>
+          gitPromise(['worktree', 'list', '--porcelain'], repoPath)
+            .then(gitParser.parseWorktreeList)
+            .then((worktrees) => worktrees.find((w) => w.path === worktreePath))
+        )
+      );
+    }
+  );
+
+  app.delete(
+    `${exports.pathPrefix}/worktrees`,
+    ensureAuthenticated,
+    ensurePathExists,
+    (req, res) => {
+      const { worktreePath, force } = req.query;
+      const repoPath = req.query.path;
+
+      if (!worktreePath) {
+        return res.status(400).json({ error: 'path is required' });
+      }
+
+      const args = ['worktree', 'remove'];
+      if (force === 'true') {
+        args.push('--force');
+      }
+      args.push(worktreePath);
+
+      jsonResultOrFailProm(res, gitPromise(args, repoPath));
+    }
+  );
+
+  app.post(
+    `${exports.pathPrefix}/worktrees/lock`,
+    ensureAuthenticated,
+    ensurePathExists,
+    (req, res) => {
+      const { worktreePath, lock } = req.body;
+      const repoPath = req.body.path || req.query.path;
+
+      if (!worktreePath) {
+        return res.status(400).json({ error: 'path is required' });
+      }
+
+      const args = ['worktree', lock ? 'lock' : 'unlock', worktreePath];
+      jsonResultOrFailProm(res, gitPromise(args, repoPath));
     }
   );
 

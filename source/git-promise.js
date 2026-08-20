@@ -498,6 +498,36 @@ git.applyPatchedDiff = (repoPath, patchedDiff) => {
   }
 };
 
+git.applyStashedFile = (repoPath, stashId, filename) => {
+  const stashRef = `stash@{${stashId}}`;
+  const trimmedFilename = typeof filename === 'string' ? filename.trim() : '';
+  const diffFileFromStash = (fromRef, toRef) => {
+    return git(['diff', '--binary', fromRef, toRef, '--', trimmedFilename], repoPath);
+  };
+
+  if (!trimmedFilename) {
+    return Promise.reject({ error: 'Must specify file' });
+  }
+
+  return diffFileFromStash(`${stashRef}^1`, stashRef)
+    .then((trackedPatch) => {
+      if (trackedPatch) return trackedPatch;
+      return git(['rev-parse', '--verify', `${stashRef}^3`], repoPath)
+        .then((untrackedParentSha1) => {
+          const untrackedParent = untrackedParentSha1.trim();
+          const emptyTree = untrackedParent.length == 64 ? gitEmptyReproSha256 : gitEmptyReproSha1;
+          return diffFileFromStash(emptyTree, untrackedParent);
+        })
+        .catch(() => '');
+    })
+    .then((patch) => {
+      if (!patch) {
+        throw { error: `No such file in stash: ${trimmedFilename}` };
+      }
+      return git(['apply'], repoPath, null, null, patch + '\n\n');
+    });
+};
+
 git.commit = (repoPath, amend, emptyCommit, message, files) => {
   return new Promise((resolve, reject) => {
     if (message == undefined) {
