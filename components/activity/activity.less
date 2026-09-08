@@ -1,0 +1,248 @@
+.git-activity {
+  position: fixed;
+  right: 18px;
+  bottom: 16px;
+  width: min(560px, calc(100vw - 36px));
+  z-index: 1100;
+  color: #d8dee5;
+  background: #20262d;
+  border: 1px solid #46515d;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.38);
+  font-size: 12px;
+}
+
+.git-activity-summary {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 7px 10px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+
+  &:hover,
+  &:focus {
+    background: #28313a;
+    outline: none;
+  }
+}
+
+.git-activity-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 9px;
+  color: #aeb7c1;
+  border: 1px solid #53606c;
+
+  &.running {
+    color: #8fd3a8;
+    border-color: #4e8866;
+  }
+}
+
+.git-activity-summary-copy,
+.git-activity-row-copy {
+  min-width: 0;
+  flex: 1;
+
+  strong,
+  small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: #eef2f5;
+    font-weight: 600;
+  }
+
+  small {
+    margin-top: 2px;
+    color: #9ba7b3;
+  }
+}
+
+.git-activity-count {
+  min-width: 19px;
+  margin: 0 8px;
+  padding: 2px 5px;
+  color: #20262d;
+  background: #8fd3a8;
+  border-radius: 10px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.git-activity-chevron {
+  color: #aeb7c1;
+}
+
+.git-activity-drawer {
+  border-top: 1px solid #46515d;
+}
+
+.git-activity-header,
+.git-activity-output-header {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 5px 10px;
+  color: #aeb7c1;
+  background: #252d35;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.git-activity-icon-button {
+  margin-left: 6px;
+  padding: 3px 5px;
+  border: 0;
+  color: #aeb7c1;
+  background: transparent;
+
+  &:first-of-type {
+    margin-left: auto;
+  }
+
+  &:hover,
+  &:focus {
+    color: #eef2f5;
+    outline: none;
+  }
+}
+
+.git-activity-body {
+  max-height: 430px;
+  overflow: hidden;
+}
+
+.git-activity-list {
+  max-height: 156px;
+  overflow-y: auto;
+  border-bottom: 1px solid #46515d;
+}
+
+.git-activity-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 43px;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid rgba(70, 81, 93, 0.5);
+  color: inherit;
+  background: transparent;
+  text-align: left;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  &:hover,
+  &:focus,
+  &.selected {
+    background: #2b3540;
+    outline: none;
+  }
+
+  &.failed .git-activity-row-copy strong {
+    color: #f0aaa5;
+  }
+}
+
+.git-activity-row-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  margin-right: 8px;
+  color: #8fd3a8;
+
+  &.failed {
+    color: #ee8f87;
+  }
+}
+
+.git-activity-spinner {
+  width: 9px;
+  height: 9px;
+  border: 2px solid #4e8866;
+  border-top-color: #b5ebc7;
+  border-radius: 50%;
+  animation: git-activity-spin 0.8s linear infinite;
+}
+
+.git-activity-row-time {
+  margin-left: 10px;
+  color: #85919d;
+  font-family: 'Source Code Pro', monospace;
+  font-size: 11px;
+}
+
+.git-activity-output-header {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+
+.git-activity-repo {
+  margin-left: auto;
+  max-width: 65%;
+  overflow: hidden;
+  color: #85919d;
+  font-family: 'Source Code Pro', monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-activity-output {
+  height: 228px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  color: #cbd5df;
+  background: #171c21;
+  border: 0;
+  font-family: 'Source Code Pro', monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@keyframes git-activity-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 600px) {
+  .git-activity {
+    right: 8px;
+    bottom: 8px;
+    width: calc(100vw - 16px);
+  }
+
+  .git-activity-body {
+    max-height: 55vh;
+  }
+
+  .git-activity-output {
+    height: 34vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .git-activity-spinner {
+    animation: none;
+  }
+}
