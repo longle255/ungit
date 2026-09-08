@@ -48,19 +48,10 @@ pLimitPromise.then((limit) => {
   pLimit = limit.default(config.maxConcurrentGitOperations);
 });
 
-let gitActionCounter = 0;
 const gitExecutorProm = (args, retryCount) => {
   let timeoutTimer;
-  const gitId = ++gitActionCounter;
-  const queueTime = Date.now();
-  const cmdStr = args.commands ? args.commands.join(' ') : '';
-  console.log(
-    `${new Date().toISOString()} [ACTION:GIT QUEUED] #${gitId} git ${cmdStr} (cwd: ${args.repoPath})`
-  );
   return pLimit(() => {
     return new Promise((resolve, reject) => {
-      const startTime = Date.now();
-      const waitTime = startTime - queueTime;
       if (config.logGitCommands)
         logger.info(`git executing: ${args.repoPath} ${args.commands.join(' ')}`);
       let rejectedError = null;
@@ -75,9 +66,6 @@ const gitExecutorProm = (args, retryCount) => {
         env: env,
       };
       const gitProcess = child_process.spawn(gitBin, args.commands, procOpts);
-      console.log(
-        `${new Date().toISOString()} [ACTION:GIT START] #${gitId} (pid: ${gitProcess.pid}, queueWait: ${waitTime}ms) git ${cmdStr} (cwd: ${args.repoPath})`
-      );
       const emitOperationEvent = (event, data) => {
         if (args.operation && typeof args.operation.emit === 'function') {
           args.operation.emit(event, data);
@@ -87,10 +75,6 @@ const gitExecutorProm = (args, retryCount) => {
         if (!timeoutTimer) return;
         timeoutTimer = null;
 
-        const duration = Date.now() - startTime;
-        console.log(
-          `${new Date().toISOString()} [ACTION:GIT TIMEOUT] #${gitId} (${duration}ms) | git ${cmdStr}`
-        );
         logger.warn(`command timedout: ${args.commands.join(' ')}\n`);
         gitProcess.kill('SIGINT');
       }, args.timeout);
@@ -112,21 +96,10 @@ const gitExecutorProm = (args, retryCount) => {
         stderr += text;
         emitOperationEvent('git-operation-output', { stream: 'stderr', text: text });
       });
-      gitProcess.on('error', (error) => {
-        const duration = Date.now() - startTime;
-        console.log(
-          `${new Date().toISOString()} [ACTION:GIT ERROR] #${gitId} (${duration}ms) | git ${cmdStr}:`,
-          error
-        );
-        rejectedError = error;
-      });
+      gitProcess.on('error', (error) => (rejectedError = error));
 
       gitProcess.on('close', (code) => {
-        const duration = Date.now() - startTime;
         emitOperationEvent('git-operation-step', { code: code });
-        console.log(
-          `${new Date().toISOString()} [ACTION:GIT END] #${gitId} code=${code} (${duration}ms) | git ${cmdStr} (stdout: ${stdout.length} bytes, stderr: ${stderr.length} bytes)`
-        );
         if (config.logGitCommands)
           logger.info(
             `git result (first 400 bytes): ${args.commands.join(' ')}\n${stderr.slice(
@@ -146,9 +119,6 @@ const gitExecutorProm = (args, retryCount) => {
   })
     .catch((err) => {
       if (retryCount > 0 && isRetryableError(err)) {
-        console.log(
-          `${new Date().toISOString()} [ACTION:GIT RETRY] #${gitId} retrying git command after lock collision: git ${cmdStr}`
-        );
         return new Promise((resolve) => {
           logger.warn(
             'retrying git commands after lock acquired fail. (If persists, lower "maxConcurrentGitOperations")'
@@ -282,7 +252,7 @@ const getGitError = (args, stderr, stdout) => {
   return err;
 };
 
-const rawGitStatus = (repoPath, file) => {
+git.status = (repoPath, file) => {
   return Promise.all([
     // 0: numStatsStaged
     git([gitOptionalLocks, 'diff', '--numstat', '--cached', '-z', '--', file || ''], repoPath).then(
@@ -365,30 +335,6 @@ const rawGitStatus = (repoPath, file) => {
   });
 };
 
-git.status = (repoPath, file) => {
-  const start = Date.now();
-  console.log(
-    `${new Date().toISOString()} [ACTION:STATUS START] repo="${repoPath}", file="${file || 'all'}"`
-  );
-  return rawGitStatus(repoPath, file)
-    .then((status) => {
-      const duration = Date.now() - start;
-      const fileCount = Object.keys((status && status.files) || {}).length;
-      console.log(
-        `${new Date().toISOString()} [ACTION:STATUS END] (${duration}ms) repo="${repoPath}", files count: ${fileCount}`
-      );
-      return status;
-    })
-    .catch((err) => {
-      const duration = Date.now() - start;
-      console.log(
-        `${new Date().toISOString()} [ACTION:STATUS ERROR] (${duration}ms) repo="${repoPath}":`,
-        err && (err.message || err.error || err)
-      );
-      throw err;
-    });
-};
-
 git.getRemoteAddress = (repoPath, remoteName) => {
   return git(['config', '--get', `remote.${remoteName}.url`], repoPath).then((text) =>
     addressParser.parseAddress(text.split('\n')[0])
@@ -444,7 +390,7 @@ git.binaryFileContent = (repoPath, filename, version, outPipe) => {
   return git(['show', `${version}:${filename}`], repoPath, null, outPipe);
 };
 
-const rawDiffFile = (repoPath, filename, oldFilename, sha1, ignoreWhiteSpace) => {
+git.diffFile = (repoPath, filename, oldFilename, sha1, ignoreWhiteSpace) => {
   if (sha1) {
     return git(['rev-list', '--max-parents=0', sha1], repoPath).then((initialCommitSha1) => {
       const prevSha1 =
@@ -508,30 +454,6 @@ const rawDiffFile = (repoPath, filename, oldFilename, sha1, ignoreWhiteSpace) =>
           );
         }
       }
-    });
-};
-
-git.diffFile = (repoPath, filename, oldFilename, sha1, ignoreWhiteSpace) => {
-  const start = Date.now();
-  console.log(
-    `${new Date().toISOString()} [ACTION:DIFF_FILE START] file="${filename}", oldFile="${oldFilename}", sha1="${sha1 || 'unstaged'}", whiteSpace=${ignoreWhiteSpace}, repo="${repoPath}"`
-  );
-  return rawDiffFile(repoPath, filename, oldFilename, sha1, ignoreWhiteSpace)
-    .then((result) => {
-      const duration = Date.now() - start;
-      const size = typeof result === 'string' ? result.length : 0;
-      console.log(
-        `${new Date().toISOString()} [ACTION:DIFF_FILE END] (${duration}ms) file="${filename}", diff length: ${size}`
-      );
-      return result;
-    })
-    .catch((err) => {
-      const duration = Date.now() - start;
-      console.log(
-        `${new Date().toISOString()} [ACTION:DIFF_FILE ERROR] (${duration}ms) file="${filename}":`,
-        err && (err.message || err.error || err)
-      );
-      throw err;
     });
 };
 

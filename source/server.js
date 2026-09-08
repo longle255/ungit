@@ -99,37 +99,6 @@ app.use(noCache);
 
 app.use(require('body-parser').json());
 
-let httpActionCounter = 0;
-app.use((req, res, next) => {
-  const reqId = ++httpActionCounter;
-  const startTime = Date.now();
-  const url = req.originalUrl || req.url;
-  const bodyInfo =
-    req.body && Object.keys(req.body).length > 0
-      ? ' body=' + JSON.stringify(req.body).slice(0, 300)
-      : '';
-  console.log(
-    `${new Date().toISOString()} [ACTION:HTTP START] #${reqId} ${req.method} ${url}${bodyInfo}`
-  );
-
-  res.on('finish', () => {
-    const duration = Date.now() - startTime;
-    console.log(
-      `${new Date().toISOString()} [ACTION:HTTP END] #${reqId} ${req.method} ${url} -> ${res.statusCode} (${duration}ms)`
-    );
-  });
-
-  res.on('close', () => {
-    if (!res.writableEnded) {
-      const duration = Date.now() - startTime;
-      console.log(
-        `${new Date().toISOString()} [ACTION:HTTP CLOSED/ABORTED] #${reqId} ${req.method} ${url} (${duration}ms)`
-      );
-    }
-  });
-
-  next();
-});
 if (config.autoShutdownTimeout) {
   let autoShutdownTimeout;
   const refreshAutoShutdownTimeout = () => {
@@ -256,16 +225,8 @@ io.on('connection', (socket) => {
   const socketId = socketIdCounter++;
   socketsById[socketId] = socket;
   socket.socketId = socketId;
-  console.log(
-    `${new Date().toISOString()} [ACTION:SOCKET] client connected, socketId: ${socketId}`
-  );
   socket.emit('connected', { socketId: socketId });
-  socket.on('disconnect', () => {
-    console.log(
-      `${new Date().toISOString()} [ACTION:SOCKET] client disconnected, socketId: ${socketId}`
-    );
-    delete socketsById[socketId];
-  });
+  socket.on('disconnect', () => delete socketsById[socketId]);
 });
 
 const apiEnvironment = {

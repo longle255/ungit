@@ -45,19 +45,13 @@ Server.prototype.initSocket = function () {
     programEvents.dispatch({ event: 'connected' });
   });
   this.socket.on('working-tree-changed', function () {
-    console.log(`${new Date().toISOString()} [ACTION:UI SOCKET RECV] working-tree-changed`);
     programEvents.dispatch({ event: 'working-tree-changed' });
   });
   this.socket.on('git-directory-changed', function () {
-    console.log(`${new Date().toISOString()} [ACTION:UI SOCKET RECV] git-directory-changed`);
     programEvents.dispatch({ event: 'git-directory-changed' });
   });
   ['started', 'output', 'step', 'finished', 'failed'].forEach(function (phase) {
     self.socket.on('git-operation-' + phase, function (data) {
-      console.log(
-        `${new Date().toISOString()} [ACTION:UI SOCKET RECV] git-operation-${phase}`,
-        data
-      );
       programEvents.dispatch({ event: 'git-operation-' + phase, data: data });
     });
   });
@@ -147,30 +141,15 @@ Server.prototype.queryPromise = function (method, path, body) {
   if (method == 'GET' || method == 'DELETE') request.query = body;
   else request.body = body;
 
-  const clientReqId = this._nextOperationId();
-  const startTime = Date.now();
-  const queryStr = request.query ? '?' + this._queryToString(request.query) : '';
-  console.log(
-    `${new Date().toISOString()} [ACTION:UI API START] #${clientReqId} ${method} /api${path}${queryStr}`,
-    request.body ? request.body : ''
-  );
-
   nprogress.start();
   return new Promise(function (resolve, reject) {
     self._httpJsonRequest(request, function (error, res) {
-      const duration = Date.now() - startTime;
       if (error) {
         if (error.error == 'connection-lost') {
           return self._isConnected(function (connected) {
             if (connected) {
-              console.log(
-                `${new Date().toISOString()} [ACTION:UI API ERROR] #${clientReqId} ${method} /api${path} (${duration}ms): cross-domain-error`
-              );
               reject({ errorCode: 'cross-domain-error', error: error });
             } else {
-              console.log(
-                `${new Date().toISOString()} [ACTION:UI API DISCONNECTED] #${clientReqId} ${method} /api${path} (${duration}ms)`
-              );
               self._onDisconnect(error);
               resolve();
             }
@@ -187,9 +166,6 @@ Server.prototype.queryPromise = function (method, path, body) {
         } else {
           errorSummary = error.httpRequest.statusText + ' ' + error.status;
         }
-        console.log(
-          `${new Date().toISOString()} [ACTION:UI API ERROR] #${clientReqId} ${method} /api${path} (${duration}ms): ${errorSummary}`
-        );
         reject({
           errorSummary: errorSummary,
           error: error,
@@ -198,9 +174,6 @@ Server.prototype.queryPromise = function (method, path, body) {
           errorCode: error && error.body ? error.body.errorCode : 'unknown',
         });
       } else {
-        console.log(
-          `${new Date().toISOString()} [ACTION:UI API END] #${clientReqId} ${method} /api${path} (${duration}ms)`
-        );
         resolve(res);
       }
     });

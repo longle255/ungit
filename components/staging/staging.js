@@ -136,8 +136,6 @@ class StagingViewModel extends ComponentRoot {
   }
 
   async _refreshContent() {
-    const start = Date.now();
-    console.log(`${new Date().toISOString()} [ACTION:UI STAGING] _refreshContent START`);
     ungit.logger.debug('staging.refreshContent() triggered');
 
     try {
@@ -156,9 +154,6 @@ class StagingViewModel extends ComponentRoot {
 
       const status = await statusPromise;
       if (this.isSamePayload(status)) {
-        console.log(
-          `${new Date().toISOString()} [ACTION:UI STAGING] _refreshContent SAME PAYLOAD (${Date.now() - start}ms)`
-        );
         return;
       }
 
@@ -190,9 +185,6 @@ class StagingViewModel extends ComponentRoot {
         ungit.logger.error('error during staging refresh: ', err);
       }
     } finally {
-      console.log(
-        `${new Date().toISOString()} [ACTION:UI STAGING] _refreshContent END (${Date.now() - start}ms, files: ${this.files().length})`
-      );
       ungit.logger.debug('staging.refreshContent() finished');
     }
   }
@@ -285,10 +277,6 @@ class StagingViewModel extends ComponentRoot {
     let commitMessage = this.commitMessageTitle();
     if (this.commitMessageBody()) commitMessage += `\n\n${this.commitMessageBody()}`;
 
-    console.log(
-      `${new Date().toISOString()} [ACTION:UI STAGING] commit START (files: ${files.length}, title: "${this.commitMessageTitle()}")`
-    );
-    const start = Date.now();
     this.server
       .postPromise('/commit', {
         path: this.repoPath(),
@@ -298,17 +286,10 @@ class StagingViewModel extends ComponentRoot {
         emptyCommit: this.emptyCommit(),
       })
       .then(() => {
-        console.log(
-          `${new Date().toISOString()} [ACTION:UI STAGING] commit SUCCESS (${Date.now() - start}ms)`
-        );
         this.resetMessages();
         programEvents.dispatch({ event: 'branch-updated' });
       })
       .catch((e) => {
-        console.log(
-          `${new Date().toISOString()} [ACTION:UI STAGING] commit ERROR (${Date.now() - start}ms):`,
-          e
-        );
         this.server.unhandledRejection(e);
       });
   }
@@ -507,9 +488,6 @@ class FileViewModel {
   }
 
   toggleStaged() {
-    console.log(
-      `${new Date().toISOString()} [ACTION:UI STAGING] toggleStaged for "${this.name()}", current: ${this.editState()}`
-    );
     if (this.editState() === 'none') {
       this.editState('staged');
     } else {
@@ -519,9 +497,6 @@ class FileViewModel {
   }
 
   discardChanges() {
-    console.log(
-      `${new Date().toISOString()} [ACTION:UI STAGING] discardChanges for "${this.name()}"`
-    );
     const timeSinceLastMute = new Date().getTime() - this.staging.mutedTime;
     const isMuteWarning = timeSinceLastMute < ungit.config.disableDiscardMuteTime;
     ungit.logger.debug(
@@ -550,7 +525,6 @@ class FileViewModel {
   }
 
   ignoreFile() {
-    console.log(`${new Date().toISOString()} [ACTION:UI STAGING] ignoreFile for "${this.name()}"`);
     this.server
       .postPromise('/ignorefile', { path: this.staging.repoPath(), file: this.name() })
       .catch((err) => {
@@ -564,18 +538,12 @@ class FileViewModel {
   }
 
   resolveConflict() {
-    console.log(
-      `${new Date().toISOString()} [ACTION:UI STAGING] resolveConflict for "${this.name()}"`
-    );
     this.server
       .postPromise('/resolveconflicts', { path: this.staging.repoPath(), files: [this.name()] })
       .catch((e) => this.server.unhandledRejection(e));
   }
 
   launchMergeTool() {
-    console.log(
-      `${new Date().toISOString()} [ACTION:UI STAGING] launchMergeTool for "${this.name()}"`
-    );
     this.server
       .postPromise('/launchmergetool', {
         path: this.staging.repoPath(),
@@ -586,14 +554,10 @@ class FileViewModel {
   }
 
   toggleDiffs() {
-    console.log(
-      `${new Date().toISOString()} [ACTION:UI STAGING] toggleDiffs for "${this.name()}", now showingDiffs: ${!this.isShowingDiffs()}`
-    );
     this.isShowingDiffs(!this.isShowingDiffs());
   }
 
   patchClick() {
-    console.log(`${new Date().toISOString()} [ACTION:UI STAGING] patchClick for "${this.name()}"`);
     if (!this.isShowingDiffs()) return;
 
     if (this.editState() === 'patched') {

@@ -40,17 +40,11 @@ class CommitLineDiff {
   }
 
   fileNameClick() {
-    console.log(
-      `${new Date().toISOString()} [ACTION:UI COMMITDIFF] fileNameClick for "${this.fileName()}" (sha1: ${this.sha1}), isShowingDiffs now: ${!this.isShowingDiffs()}`
-    );
     this.isShowingDiffs(!this.isShowingDiffs());
     programEvents.dispatch({ event: 'graph-render' });
   }
 
   applyFileClick() {
-    console.log(
-      `${new Date().toISOString()} [ACTION:UI COMMITDIFF] applyFileClick for "${this.fileName()}"`
-    );
     this.applyFile(this.fileName());
   }
 }

@@ -26,7 +26,6 @@ class HeaderViewModel {
   }
 
   submitPath() {
-    console.log(`${new Date().toISOString()} [ACTION:UI HEADER] submitPath: "${this.path()}"`);
     navigation.browseTo(`repository?path=${encodePath(this.path())}`);
   }
 
@@ -40,9 +39,6 @@ class HeaderViewModel {
   }
 
   addCurrentPathToRepoList() {
-    console.log(
-      `${new Date().toISOString()} [ACTION:UI HEADER] addCurrentPathToRepoList: "${this.path()}"`
-    );
     programEvents.dispatch({ event: 'request-remember-repo', repoPath: this.path() });
     return true;
   }

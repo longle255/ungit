@@ -72,9 +72,6 @@ class RepositoryViewModel {
   }
 
   refreshSubmoduleStatus() {
-    console.log(
-      `${new Date().toISOString()} [ACTION:UI REPO] refreshSubmoduleStatus for "${this.repoPath()}"`
-    );
     return this.server
       .getPromise('/baserepopath', { path: this.repoPath() })
       .then((baseRepoPath) => {
@@ -100,9 +97,6 @@ class RepositoryViewModel {
   }
 
   editGitignore() {
-    console.log(
-      `${new Date().toISOString()} [ACTION:UI REPO] editGitignore for "${this.repoPath()}"`
-    );
     return this.server
       .getPromise('/gitignore', { path: this.repoPath() })
       .then((res) => {

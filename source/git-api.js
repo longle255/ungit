@@ -138,9 +138,6 @@ exports.registerApi = (env) => {
       }
       const watcher = chokidar.watch(item, { ignored: filter, ignoreInitial: true });
       const changed = (changedPath) => {
-        console.log(
-          `${new Date().toISOString()} [ACTION:WATCHER] [${this.watcherId}] ${name} changed: ${changedPath}`
-        );
         logger.silly(`[${this.watcherId}] ${name}`, changedPath);
         this.emit(name, changedPath);
       };
@@ -266,9 +263,6 @@ exports.registerApi = (env) => {
         invalidateWorktreeStatus(repoPath);
       }
       if (io && repoPath) {
-        console.log(
-          `${new Date().toISOString()} [ACTION:SOCKET EMIT] working-tree-changed for ${repoPath}`
-        );
         io.in(path.normalize(repoPath)).emit('working-tree-changed', { repository: repoPath });
         logger.info('emitting working-tree-changed to sockets, manually triggered');
       }
@@ -282,9 +276,6 @@ exports.registerApi = (env) => {
         invalidateWorktreeStatus(repoPath);
       }
       if (io && repoPath) {
-        console.log(
-          `${new Date().toISOString()} [ACTION:SOCKET EMIT] git-directory-changed for ${repoPath}`
-        );
         io.in(path.normalize(repoPath)).emit('git-directory-changed', { repository: repoPath });
         logger.info('emitting git-directory-changed to sockets, manually triggered');
       }
@@ -374,10 +365,6 @@ exports.registerApi = (env) => {
 
   const trackedOperation = (req, action, repoPath, taskFactory) => {
     const operation = createOperation(req, action, repoPath);
-    const start = Date.now();
-    console.log(
-      `${new Date().toISOString()} [ACTION:TRACKED_OP START] action=${action}, repo=${repoPath}`
-    );
     let task;
     try {
       task = Promise.resolve(taskFactory(operation));
@@ -385,19 +372,6 @@ exports.registerApi = (env) => {
       task = Promise.reject(error);
     }
     if (operation) task.then(operation.finish, operation.fail);
-    task.then(
-      () => {
-        console.log(
-          `${new Date().toISOString()} [ACTION:TRACKED_OP END] action=${action}, repo=${repoPath} (${Date.now() - start}ms)`
-        );
-      },
-      (err) => {
-        console.log(
-          `${new Date().toISOString()} [ACTION:TRACKED_OP ERROR] action=${action}, repo=${repoPath} (${Date.now() - start}ms):`,
-          err && (err.message || err.error || err)
-        );
-      }
-    );
     return task;
   };
 
