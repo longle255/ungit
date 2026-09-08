@@ -70,4 +70,25 @@ describe('client server', () => {
 
     await server.postPromise('/commit', { path: '/repos/SleepyCats' });
   });
+
+  it('reuses an in-flight worktree request for the same path', async () => {
+    const server = createServer();
+    let requestCount = 0;
+    let resolveCallback;
+    server._httpJsonRequest = (request, callback) => {
+      requestCount += 1;
+      resolveCallback = () => callback(null, [{ path: '/repos/SleepyCats', branch: 'main' }]);
+    };
+
+    const req1 = server.getPromise('/worktrees', { path: '/repos/SleepyCats' });
+    const req2 = server.getPromise('/worktrees', { path: '/repos/SleepyCats' });
+
+    expect(req2).to.be(req1);
+    expect(requestCount).to.be(1);
+
+    resolveCallback();
+    const [res1, res2] = await Promise.all([req1, req2]);
+    expect(res1).to.eql([{ path: '/repos/SleepyCats', branch: 'main' }]);
+    expect(res2).to.eql([{ path: '/repos/SleepyCats', branch: 'main' }]);
+  });
 });

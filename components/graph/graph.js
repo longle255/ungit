@@ -9,11 +9,15 @@ const EdgeViewModel = require('./edge');
 const { ComponentRoot } = require('../ComponentRoot');
 const numberOfNodesPerLoad = ungit.config.numberOfNodesPerLoad;
 
-components.register('graph', (args) => new GraphViewModel(args.server, args.repoPath));
+components.register(
+  'graph',
+  (args) => new GraphViewModel(args.server, args.repoPath, args.worktrees)
+);
 
 class GraphViewModel extends ComponentRoot {
-  constructor(server, repoPath) {
+  constructor(server, repoPath, worktrees) {
     super();
+    this.worktreesComponent = worktrees;
     this._isLoadNodesFromApiRunning = false;
     this._worktreesRequest = null;
     this.updateBranches = _.debounce(this._updateBranches, 250, this.defaultDebounceOption);
@@ -344,12 +348,19 @@ class GraphViewModel extends ComponentRoot {
     const start = Date.now();
     console.log(`${new Date().toISOString()} [ACTION:UI GRAPH] _updateWorktrees START`);
 
-    this._worktreesRequest = this.server
-      .getPromise('/worktrees', { path: this.repoPath() })
+    const worktreePromise =
+      this.worktreesComponent && this.worktreesComponent._loadPromise
+        ? this.worktreesComponent._loadPromise
+        : this.server.getPromise('/worktrees', { path: this.repoPath() });
+
+    this._worktreesRequest = worktreePromise
       .then((worktrees) => {
-        this.setWorktrees(worktrees || []);
+        const list = Array.isArray(worktrees)
+          ? worktrees
+          : (this.worktreesComponent && this.worktreesComponent.worktrees()) || [];
+        this.setWorktrees(list);
         console.log(
-          `${new Date().toISOString()} [ACTION:UI GRAPH] _updateWorktrees END (${Date.now() - start}ms, count: ${(worktrees || []).length})`
+          `${new Date().toISOString()} [ACTION:UI GRAPH] _updateWorktrees END (${Date.now() - start}ms, count: ${(list || []).length})`
         );
       })
       .catch((err) => {

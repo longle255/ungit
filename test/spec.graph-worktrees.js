@@ -153,7 +153,7 @@ describe('graph worktree refs', () => {
 
     return {
       calls,
-      viewModel: registered.graph({ server, repoPath }),
+      viewModel: registered.graph({ server, repoPath, worktrees: args.worktrees }),
     };
   }
 
@@ -215,6 +215,26 @@ describe('graph worktree refs', () => {
     viewModel.onProgramEvent({ event: 'worktree-changed' });
     await viewModel._worktreesRequest;
     expect(calls.filter((url) => url === '/worktrees').length).to.be(initialWorktreeCalls + 1);
+  });
+
+  it('reuses an active worktree request from the worktrees component', async () => {
+    let resolveWorktree;
+    const worktreePromise = new Promise((resolve) => {
+      resolveWorktree = resolve;
+    });
+    const worktreesComponent = {
+      _loadPromise: worktreePromise,
+      worktrees: () => [],
+    };
+    const { calls, viewModel } = createGraphViewModel({ worktrees: worktreesComponent });
+    resolveWorktree([
+      { path: '/repos/current', branch: 'main', status: 'clean' },
+      { path: '/repos/current-feature-demo', branch: 'feature/demo', status: 'dirty' },
+    ]);
+    await viewModel._worktreesRequest;
+    const worktreeCalls = calls.filter((url) => url === '/worktrees').length;
+    expect(worktreeCalls).to.be(0);
+    expect(viewModel.worktrees().length).to.be(2);
   });
 
   it('switches to another worktree instead of checking out its branch in the current path', async () => {

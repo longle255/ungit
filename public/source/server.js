@@ -218,6 +218,19 @@ Server.prototype._nextOperationId = function () {
   );
 };
 Server.prototype.getPromise = function (url, arg) {
+  if (url === '/worktrees') {
+    var key = (arg && arg.path) || '';
+    if (!this._worktreesInFlight) this._worktreesInFlight = new Map();
+    if (this._worktreesInFlight.has(key)) {
+      return this._worktreesInFlight.get(key);
+    }
+    var self = this;
+    var promise = this.queryPromise('GET', url, arg).finally(function () {
+      if (self._worktreesInFlight) self._worktreesInFlight.delete(key);
+    });
+    this._worktreesInFlight.set(key, promise);
+    return promise;
+  }
   return this.queryPromise('GET', url, arg);
 };
 Server.prototype.postPromise = function (url, arg) {

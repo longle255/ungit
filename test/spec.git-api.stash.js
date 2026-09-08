@@ -44,6 +44,16 @@ describe('git-api conflict rebase', function () {
     });
   });
 
+  it('should cache untracked stash diffs in memory', () => {
+    expect(restGit._untrackedStashDiffCache.size).to.be.above(0);
+    return Promise.all([
+      common.get(req, '/stashes', { path: testDir }),
+      common.get(req, '/stashes', { path: testDir }),
+    ]).then(([res1, res2]) => {
+      expect(res1[0].fileLineDiffs).to.eql(res2[0].fileLineDiffs);
+    });
+  });
+
   it('should show the stashed new file diff', () => {
     return common
       .get(req, '/stashes', { path: testDir })

@@ -8,12 +8,69 @@ const rimraf = require('rimraf').rimraf;
 const _ = require('lodash');
 const gitPromise = require('./git-promise');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const chokidar = require('chokidar');
 const ignore = require('ignore');
 const { EventEmitter } = require('events');
 
 const tenMinTimeoutMs = 10 * 60 * 1000;
 
+const untrackedStashDiffCache = new Map();
+const untrackedStashDiffInFlight = new Map();
+
+const getUntrackedStashDiff = (repoPath, sha1) => {
+  if (untrackedStashDiffCache.has(sha1)) {
+    return Promise.resolve(untrackedStashDiffCache.get(sha1));
+  }
+  if (untrackedStashDiffInFlight.has(sha1)) {
+    return untrackedStashDiffInFlight.get(sha1);
+  }
+  const promise = gitPromise(
+    ['diff-tree', '--numstat', '-z', '--root', '--no-commit-id', sha1],
+    repoPath
+  )
+    .then((untrackedNumstat) => {
+      const untrackedFileLineDiffs = gitParser.parseFileLineDiffs(untrackedNumstat, {
+        isNew: true,
+        sha1: sha1,
+      });
+      untrackedStashDiffCache.set(sha1, untrackedFileLineDiffs);
+      return untrackedFileLineDiffs;
+    })
+    .finally(() => {
+      untrackedStashDiffInFlight.delete(sha1);
+    });
+
+  untrackedStashDiffInFlight.set(sha1, promise);
+  return promise;
+};
+
+exports._untrackedStashDiffCache = untrackedStashDiffCache;
+exports._untrackedStashDiffInFlight = untrackedStashDiffInFlight;
+const worktreeStatusCache = new Map();
+const worktreeInFlightRequests = new Map();
+const WORKTREE_STATUS_TTL_MS = 20 * 1000;
+
+const normalizeWorktreePath = (targetPath) => {
+  if (!targetPath) return '';
+  let normalized = path.normalize(targetPath).replace(/\\/g, '/').replace(/\/+$/, '');
+  try {
+    normalized = fsSync.realpathSync(normalized).replace(/\\/g, '/').replace(/\/+$/, '');
+  } catch {
+    // Path may not exist on disk yet
+  }
+  return normalized;
+};
+
+const invalidateWorktreeStatus = (targetPath) => {
+  if (!targetPath) return;
+  const normalized = normalizeWorktreePath(targetPath);
+  worktreeStatusCache.delete(normalized);
+};
+
+exports._worktreeStatusCache = worktreeStatusCache;
+exports._worktreeInFlightRequests = worktreeInFlightRequests;
+exports._invalidateWorktreeStatus = invalidateWorktreeStatus;
 exports.pathPrefix = '';
 
 exports.registerApi = (env) => {
@@ -197,6 +254,9 @@ exports.registerApi = (env) => {
 
   const emitWorkingTreeChanged = _.debounce(
     (repoPath) => {
+      if (repoPath) {
+        invalidateWorktreeStatus(repoPath);
+      }
       if (io && repoPath) {
         console.log(
           `${new Date().toISOString()} [ACTION:SOCKET EMIT] working-tree-changed for ${repoPath}`
@@ -210,6 +270,9 @@ exports.registerApi = (env) => {
   );
   const emitGitDirectoryChanged = _.debounce(
     (repoPath) => {
+      if (repoPath) {
+        invalidateWorktreeStatus(repoPath);
+      }
       if (io && repoPath) {
         console.log(
           `${new Date().toISOString()} [ACTION:SOCKET EMIT] git-directory-changed for ${repoPath}`
@@ -1158,27 +1221,22 @@ exports.registerApi = (env) => {
               return stash;
             }
 
-            return gitPromise(
-              ['diff-tree', '--numstat', '-z', '--root', '--no-commit-id', untrackedParentSha1],
-              req.query.path
-            ).then((untrackedNumstat) => {
-              const untrackedFileLineDiffs = gitParser.parseFileLineDiffs(untrackedNumstat, {
-                isNew: true,
-                sha1: untrackedParentSha1,
-              });
+            return getUntrackedStashDiff(req.query.path, untrackedParentSha1).then(
+              (untrackedFileLineDiffs) => {
+                const diffs = untrackedFileLineDiffs.map((fileLineDiff) => ({ ...fileLineDiff }));
+                stash.fileLineDiffs.push(...diffs);
+                for (const fileLineDiff of diffs) {
+                  if (!isNaN(parseInt(fileLineDiff.additions, 10))) {
+                    stash.additions += fileLineDiff.additions;
+                  }
+                  if (!isNaN(parseInt(fileLineDiff.deletions, 10))) {
+                    stash.deletions += fileLineDiff.deletions;
+                  }
+                }
 
-              stash.fileLineDiffs.push(...untrackedFileLineDiffs);
-              for (const fileLineDiff of untrackedFileLineDiffs) {
-                if (!isNaN(parseInt(fileLineDiff.additions, 10))) {
-                  stash.additions += fileLineDiff.additions;
-                }
-                if (!isNaN(parseInt(fileLineDiff.deletions, 10))) {
-                  stash.deletions += fileLineDiff.deletions;
-                }
+                return stash;
               }
-
-              return stash;
-            });
+            );
           })
         );
       });
@@ -1229,33 +1287,61 @@ exports.registerApi = (env) => {
     }
   );
 
+  const getWorktrees = (repoPath) => {
+    const normalizedRepo = normalizeWorktreePath(repoPath);
+    if (worktreeInFlightRequests.has(normalizedRepo)) {
+      return worktreeInFlightRequests.get(normalizedRepo);
+    }
+
+    const promise = gitPromise(['worktree', 'list', '--porcelain'], repoPath)
+      .then(gitParser.parseWorktreeList)
+      .then((worktrees) => {
+        return Promise.all(
+          worktrees.map(async (worktree) => {
+            const normalizedWorktreePath = normalizeWorktreePath(worktree.path);
+            const cached = worktreeStatusCache.get(normalizedWorktreePath);
+            if (cached && Date.now() - cached.timestamp < WORKTREE_STATUS_TTL_MS) {
+              worktree.status = cached.status;
+              return worktree;
+            }
+
+            try {
+              const statusArgs = config.isGitOptionalLocks
+                ? ['--no-optional-locks', 'status', '--porcelain']
+                : ['status', '--porcelain'];
+              const status = await gitPromise(statusArgs, worktree.path);
+              let worktreeStatus;
+              if (!status || status.trim() === '') {
+                worktreeStatus = 'clean';
+              } else if (status.includes('UU ') || status.includes('AA ')) {
+                worktreeStatus = 'conflicts';
+              } else {
+                worktreeStatus = 'dirty';
+              }
+              worktreeStatusCache.set(normalizedWorktreePath, {
+                status: worktreeStatus,
+                timestamp: Date.now(),
+              });
+              worktree.status = worktreeStatus;
+            } catch {
+              worktree.status = 'unknown';
+            }
+            return worktree;
+          })
+        );
+      })
+      .finally(() => {
+        worktreeInFlightRequests.delete(normalizedRepo);
+      });
+
+    worktreeInFlightRequests.set(normalizedRepo, promise);
+    return promise;
+  };
+
   app.get(`${exports.pathPrefix}/worktrees`, ensureAuthenticated, ensurePathExists, (req, res) => {
     jsonResultOrFailProm(
       res,
-      gitPromise(['worktree', 'list', '--porcelain'], req.query.path)
-        .then(gitParser.parseWorktreeList)
-        .then((worktrees) => {
-          return Promise.all(
-            worktrees.map(async (worktree) => {
-              try {
-                const statusArgs = config.isGitOptionalLocks
-                  ? ['--no-optional-locks', 'status', '--porcelain']
-                  : ['status', '--porcelain'];
-                const status = await gitPromise(statusArgs, worktree.path);
-                if (!status || status.trim() === '') {
-                  worktree.status = 'clean';
-                } else if (status.includes('UU ') || status.includes('AA ')) {
-                  worktree.status = 'conflicts';
-                } else {
-                  worktree.status = 'dirty';
-                }
-              } catch {
-                worktree.status = 'unknown';
-              }
-              return worktree;
-            })
-          );
-        })
+      getWorktrees(req.query.path).then((worktrees) => worktrees.map((w) => ({ ...w })))
     );
   });
 
@@ -1285,12 +1371,21 @@ exports.registerApi = (env) => {
         args.push(worktreePath, branch);
       }
 
+      invalidateWorktreeStatus(worktreePath);
+      invalidateWorktreeStatus(repoPath);
+      worktreeInFlightRequests.delete(normalizeWorktreePath(repoPath));
       jsonResultOrFailProm(
         res,
         gitPromise(args, repoPath).then(() =>
           gitPromise(['worktree', 'list', '--porcelain'], repoPath)
             .then(gitParser.parseWorktreeList)
-            .then((worktrees) => worktrees.find((w) => w.path === worktreePath))
+            .then((worktrees) =>
+              worktrees.find(
+                (w) =>
+                  w.path === worktreePath ||
+                  normalizeWorktreePath(w.path) === normalizeWorktreePath(worktreePath)
+              )
+            )
         )
       );
     }
@@ -1314,6 +1409,9 @@ exports.registerApi = (env) => {
       }
       args.push(worktreePath);
 
+      invalidateWorktreeStatus(worktreePath);
+      invalidateWorktreeStatus(repoPath);
+      worktreeInFlightRequests.delete(normalizeWorktreePath(repoPath));
       jsonResultOrFailProm(res, gitPromise(args, repoPath));
     }
   );
@@ -1330,6 +1428,8 @@ exports.registerApi = (env) => {
         return res.status(400).json({ error: 'path is required' });
       }
 
+      invalidateWorktreeStatus(worktreePath);
+      invalidateWorktreeStatus(repoPath);
       const args = ['worktree', lock ? 'lock' : 'unlock', worktreePath];
       jsonResultOrFailProm(res, gitPromise(args, repoPath));
     }
@@ -1433,6 +1533,10 @@ exports.registerApi = (env) => {
       );
     });
     app.post(`${exports.pathPrefix}/testing/cleanup`, (req, res) => {
+      untrackedStashDiffCache.clear();
+      untrackedStashDiffInFlight.clear();
+      worktreeStatusCache.clear();
+      worktreeInFlightRequests.clear();
       temp.cleanup((err, cleaned) => {
         logger.info('Cleaned up: ' + JSON.stringify(cleaned));
         res.json({ result: cleaned });

@@ -28,6 +28,7 @@ class WorktreesViewModel {
       .getPromise('/worktrees', { path: this.repoPath() })
       .then((worktrees) => {
         this.worktrees(worktrees || []);
+        return worktrees || [];
       })
       .catch((e) => {
         this.error(e.errorSummary || e.message || 'Unable to load worktrees');

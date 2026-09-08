@@ -12,10 +12,14 @@ class RepositoryViewModel {
     this.isBareDir = path.status() === 'bare';
     this.repoPath = path.repoPath;
     this.gitErrors = components.create('gitErrors', { server, repoPath: this.repoPath });
-    this.graph = components.create('graph', { server, repoPath: this.repoPath });
+    this.worktrees = components.create('worktrees', { server, repoPath: this.repoPath });
+    this.graph = components.create('graph', {
+      server,
+      repoPath: this.repoPath,
+      worktrees: this.worktrees,
+    });
     this.remotes = components.create('remotes', { server, repoPath: this.repoPath });
     this.submodules = components.create('submodules', { server, repoPath: this.repoPath });
-    this.worktrees = components.create('worktrees', { server, repoPath: this.repoPath });
     this.stash = this.isBareDir
       ? {}
       : components.create('stash', { server, repoPath: this.repoPath });
