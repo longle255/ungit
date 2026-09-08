@@ -7,12 +7,16 @@ var hasher = (navigation.hasher = require('hasher'));
 var crossroads = (navigation.crossroads = require('crossroads'));
 
 navigation.browseTo = function (path) {
+  console.log(`${new Date().toISOString()} [ACTION:UI NAV] browseTo: "${path}"`);
   hasher.setHash(path);
 };
 
 navigation.init = function () {
   //setup hasher
   function parseHash(newHash, oldHash) {
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI NAV] parseHash: "${oldHash}" -> "${newHash}"`
+    );
     crossroads.parse(newHash);
     programEvents.dispatch({ event: 'navigation-changed', path: newHash, oldPath: oldHash });
   }

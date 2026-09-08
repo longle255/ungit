@@ -33,10 +33,26 @@ class ActionBase {
 
   doPerform() {
     if (this.isRunning()) return;
+    const start = Date.now();
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI GRAPH ACTION START] ${this.text} (${this.constructor.name})`
+    );
     this.graph.hoverGraphAction(null);
     this.isRunning(true);
     return this.perform()
-      .catch((e) => this.server.unhandledRejection(e))
+      .then((res) => {
+        console.log(
+          `${new Date().toISOString()} [ACTION:UI GRAPH ACTION END] ${this.text} (${this.constructor.name}) (${Date.now() - start}ms)`
+        );
+        return res;
+      })
+      .catch((e) => {
+        console.log(
+          `${new Date().toISOString()} [ACTION:UI GRAPH ACTION ERROR] ${this.text} (${this.constructor.name}) (${Date.now() - start}ms):`,
+          e
+        );
+        this.server.unhandledRejection(e);
+      })
       .finally(() => {
         this.isRunning(false);
       });

@@ -33,12 +33,16 @@ class StashItemViewModel {
   }
 
   apply() {
+    console.log(`${new Date().toISOString()} [ACTION:UI STASH] apply stash: ${this.id}`);
     this.server
       .delPromise(`/stashes/${this.id}`, { path: this.stash.repoPath(), apply: true })
       .catch((e) => this.server.unhandledRejection(e));
   }
 
   applyFile(file) {
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI STASH] applyFile stash: ${this.id}, file: ${file}`
+    );
     this.server
       .postPromise(`/stashes/${this.id}/files`, { path: this.stash.repoPath(), file })
       .catch((e) => this.server.unhandledRejection(e));
@@ -58,6 +62,9 @@ class StashItemViewModel {
   }
 
   toggleShowCommitDiffs() {
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI STASH] toggleShowCommitDiffs for stash: ${this.id}, now: ${!this.showCommitDiff()}`
+    );
     this.showCommitDiff(!this.showCommitDiff());
   }
 }
@@ -87,8 +94,9 @@ class StashViewModel extends ComponentRoot {
   }
 
   async _refresh() {
+    const start = Date.now();
+    console.log(`${new Date().toISOString()} [ACTION:UI STASH] _refresh START`);
     ungit.logger.debug('stash.refresh() triggered');
-
     try {
       const stashes = await this.server.getPromise('/stashes', { path: this.repoPath() });
       if (this.isSamePayload(stashes)) {
@@ -112,6 +120,9 @@ class StashViewModel extends ComponentRoot {
         ungit.logger.warn('refresh failed: ', err);
       }
     } finally {
+      console.log(
+        `${new Date().toISOString()} [ACTION:UI STASH] _refresh END (${Date.now() - start}ms)`
+      );
       ungit.logger.debug('stash.refresh() finished');
     }
   }

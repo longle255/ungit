@@ -48,6 +48,7 @@ class CommitViewModel {
   }
 
   setData(args) {
+    console.log(`${new Date().toISOString()} [ACTION:UI COMMIT] setData for sha1: ${this.sha1}`);
     const message = args.message.split('\n');
     this.message(args.message);
     this.title(message[0]);
@@ -89,10 +90,12 @@ class CommitViewModel {
   }
 
   copyHash() {
+    console.log(`${new Date().toISOString()} [ACTION:UI COMMIT] copyHash: ${this.sha1}`);
     navigator.clipboard.writeText(this.sha1);
   }
 
   gotoCommit(sha1) {
+    console.log(`${new Date().toISOString()} [ACTION:UI COMMIT] gotoCommit: ${sha1}`);
     const node = this.graph.nodesById[sha1];
     if (node) {
       node.toggleSelected();

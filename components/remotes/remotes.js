@@ -48,8 +48,11 @@ class RemotesViewModel {
 
   async fetch(options) {
     if (!this.currentRemote()) return;
+    const start = Date.now();
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI REMOTES] fetch START (remote: ${this.currentRemote()})`
+    );
     ungit.logger.debug('remotes.fetch() triggered');
-
     try {
       const tagPromise = options.tags
         ? this.server.getPromise('/remote/tags', {
@@ -105,6 +108,9 @@ class RemotesViewModel {
         },
       });
     } finally {
+      console.log(
+        `${new Date().toISOString()} [ACTION:UI REMOTES] fetch END (${Date.now() - start}ms)`
+      );
       ungit.logger.debug('remotes.fetch() finished');
     }
   }

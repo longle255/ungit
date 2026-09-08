@@ -88,6 +88,10 @@ class PathViewModel extends ComponentRoot {
     if (this.repository()) this.repository().updateAnimationFrame(deltaT);
   }
   async updateStatus() {
+    const start = Date.now();
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI PATH] updateStatus START for "${this.repoPath()}"`
+    );
     ungit.logger.debug('path.updateStatus() triggered');
     const status = await this.server.getPromise('/quickstatus', { path: this.repoPath() });
     try {
@@ -117,10 +121,16 @@ class PathViewModel extends ComponentRoot {
     } catch (err) {
       ungit.logger.debug('path.updateStatus() errored', err);
     } finally {
+      console.log(
+        `${new Date().toISOString()} [ACTION:UI PATH] updateStatus END for "${this.repoPath()}" (${Date.now() - start}ms, status: ${this.status()})`
+      );
       ungit.logger.debug('path.updateStatus() finished');
     }
   }
   initRepository() {
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI PATH] initRepository for "${this.repoPath()}"`
+    );
     return this.server
       .postPromise('/init', { path: this.repoPath() })
       .catch((e) => this.server.unhandledRejection(e))

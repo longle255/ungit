@@ -26,6 +26,13 @@ class ImageDiffViewModel {
     this.newImageSrc =
       gitDiffURL + `&filename=${this.filename}&version=${this.sha1 ? this.sha1 : 'current'}`;
     this.isShowingDiffs = args.isShowingDiffs;
+    if (this.isShowingDiffs && typeof this.isShowingDiffs.subscribe === 'function') {
+      this.isShowingDiffs.subscribe((val) => {
+        console.log(
+          `${new Date().toISOString()} [ACTION:UI IMAGEDIFF] isShowingDiffs changed to ${val} for "${this.filename}"`
+        );
+      });
+    }
     this.rightArrowIcon = octicons['arrow-right'].toSVG({ height: 100 });
     this.downArrowIcon = octicons['arrow-down'].toSVG({ height: 100 });
   }

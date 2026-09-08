@@ -211,6 +211,9 @@ class GitNodeViewModel extends Animateable {
 
   createBranch() {
     if (!this.canCreateRef()) return;
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI GRAPH] createBranch "${this.newBranchName()}" on node ${this.sha1}`
+    );
     this.graph.server
       .postPromise('/branches', {
         path: this.graph.repoPath(),
@@ -236,6 +239,9 @@ class GitNodeViewModel extends Animateable {
 
   createTag() {
     if (!this.canCreateRef()) return;
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI GRAPH] createTag "${this.newBranchName()}" on node ${this.sha1}`
+    );
     this.graph.server
       .postPromise('/tags', {
         path: this.graph.repoPath(),
@@ -253,12 +259,18 @@ class GitNodeViewModel extends Animateable {
   createWorktree() {
     if (!this.canCreateRef()) return;
     const branchName = this.newBranchName();
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI GRAPH] createWorktree "${branchName}" on node ${this.sha1}`
+    );
     this.branchingFormVisible(false);
     this.newBranchName('');
     programEvents.dispatch({ event: 'create-worktree', branch: branchName });
   }
 
   toggleSelected() {
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI GRAPH] toggleSelected node: ${this.sha1}, selected now: ${!this.selected()}`
+    );
     this.selected(!this.selected());
     if (this.selected()) {
       const commitElement = this.commitComponent.element();

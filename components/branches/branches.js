@@ -48,12 +48,16 @@ class BranchesViewModel extends ComponentRoot {
   }
 
   checkoutBranch(branch) {
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI BRANCHES] checkoutBranch: ${branch.name || branch.refName}`
+    );
     branch.checkout();
   }
   updateNode(parentElement) {
     ko.renderTemplate('branches', this, {}, parentElement);
   }
   clickFetch() {
+    console.log(`${new Date().toISOString()} [ACTION:UI BRANCHES] clickFetch`);
     this.updateRefs(true);
   }
   onProgramEvent(event) {
@@ -67,8 +71,11 @@ class BranchesViewModel extends ComponentRoot {
     }
   }
   async _updateRefs(forceRemoteFetch) {
+    const start = Date.now();
     forceRemoteFetch = forceRemoteFetch || this.shouldAutoFetch || '';
-
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI BRANCHES] _updateRefs START (forceRemoteFetch: ${forceRemoteFetch})`
+    );
     const branchesProm = this.server.getPromise('/branches', { path: this.repoPath() });
     const refsProm = this.server.getPromise('/refs', {
       path: this.repoPath(),
@@ -134,6 +141,10 @@ class BranchesViewModel extends ComponentRoot {
       });
     } catch (e) {
       ungit.logger.error('error during branch update: ', e);
+    } finally {
+      console.log(
+        `${new Date().toISOString()} [ACTION:UI BRANCHES] _updateRefs END (${Date.now() - start}ms)`
+      );
     }
   }
 

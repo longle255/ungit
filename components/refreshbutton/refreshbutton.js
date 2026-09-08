@@ -12,6 +12,7 @@ class RefreshButton {
   }
 
   refresh() {
+    console.log(`${new Date().toISOString()} [ACTION:UI REFRESH] refresh button clicked`);
     programEvents.dispatch({ event: 'request-app-content-refresh' });
     return true;
   }

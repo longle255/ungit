@@ -46,6 +46,9 @@ class GraphViewModel extends ComponentRoot {
     this.currentActionContext = ko.observable();
     this.scrolledToEnd = _.debounce(
       () => {
+        console.log(
+          `${new Date().toISOString()} [ACTION:UI GRAPH] scrolledToEnd, new limit: ${numberOfNodesPerLoad + this.limit()}`
+        );
         this.limit(numberOfNodesPerLoad + this.limit());
         this.loadNodesFromApi();
       },
@@ -55,6 +58,9 @@ class GraphViewModel extends ComponentRoot {
     this.loadAhead = _.debounce(
       () => {
         if (this.skip() <= 0) return;
+        console.log(
+          `${new Date().toISOString()} [ACTION:UI GRAPH] loadAhead, new skip: ${Math.max(this.skip() - numberOfNodesPerLoad, 0)}`
+        );
         this.skip(Math.max(this.skip() - numberOfNodesPerLoad, 0));
         this.loadNodesFromApi();
       },
@@ -117,6 +123,10 @@ class GraphViewModel extends ComponentRoot {
 
   async _loadNodesFromApi() {
     this._isLoadNodesFromApiRunning = true;
+    const start = Date.now();
+    console.log(
+      `${new Date().toISOString()} [ACTION:UI GRAPH] _loadNodesFromApi START (limit: ${this.limit()}, skip: ${this.skip()})`
+    );
     ungit.logger.debug('graph.loadNodesFromApi() triggered');
     const nodeSize = this.nodes().length;
     const edges = [];
@@ -128,6 +138,9 @@ class GraphViewModel extends ComponentRoot {
         skip: this.skip(),
       });
       if (this.isSamePayload(log)) {
+        console.log(
+          `${new Date().toISOString()} [ACTION:UI GRAPH] _loadNodesFromApi SAME PAYLOAD (${Date.now() - start}ms)`
+        );
         return;
       }
       const nodes = this.computeNode(
@@ -157,6 +170,9 @@ class GraphViewModel extends ComponentRoot {
         this.scrolledToEnd();
       }
       this._isLoadNodesFromApiRunning = false;
+      console.log(
+        `${new Date().toISOString()} [ACTION:UI GRAPH] _loadNodesFromApi END (${Date.now() - start}ms, nodes: ${this.nodes().length})`
+      );
       ungit.logger.debug('graph.loadNodesFromApi() finished');
     }
   }
@@ -304,11 +320,16 @@ class GraphViewModel extends ComponentRoot {
   }
 
   async _updateBranches() {
+    const start = Date.now();
+    console.log(`${new Date().toISOString()} [ACTION:UI GRAPH] _updateBranches START`);
     const checkout = await this.server.getPromise('/checkout', { path: this.repoPath() });
 
     try {
       ungit.logger.debug('setting checkedOutBranch', checkout);
       this.checkedOutBranch(checkout);
+      console.log(
+        `${new Date().toISOString()} [ACTION:UI GRAPH] _updateBranches END (${Date.now() - start}ms, checkedOutBranch: ${checkout})`
+      );
     } catch (err) {
       if (err.errorCode != 'not-a-repository') {
         this.server.unhandledRejection(err);
@@ -320,11 +341,16 @@ class GraphViewModel extends ComponentRoot {
 
   async _updateWorktrees() {
     if (this._worktreesRequest) return this._worktreesRequest;
+    const start = Date.now();
+    console.log(`${new Date().toISOString()} [ACTION:UI GRAPH] _updateWorktrees START`);
 
     this._worktreesRequest = this.server
       .getPromise('/worktrees', { path: this.repoPath() })
       .then((worktrees) => {
         this.setWorktrees(worktrees || []);
+        console.log(
+          `${new Date().toISOString()} [ACTION:UI GRAPH] _updateWorktrees END (${Date.now() - start}ms, count: ${(worktrees || []).length})`
+        );
       })
       .catch((err) => {
         if (err.errorCode != 'not-a-repository') {
