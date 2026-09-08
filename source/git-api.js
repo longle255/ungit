@@ -71,6 +71,12 @@ const invalidateWorktreeStatus = (targetPath) => {
 exports._worktreeStatusCache = worktreeStatusCache;
 exports._worktreeInFlightRequests = worktreeInFlightRequests;
 exports._invalidateWorktreeStatus = invalidateWorktreeStatus;
+const refsInFlightRequests = new Map();
+const lastRemoteFetchTime = new Map();
+const REMOTE_FETCH_COOLDOWN_MS = 20 * 1000;
+exports._refsInFlightRequests = refsInFlightRequests;
+exports._lastRemoteFetchTime = lastRemoteFetchTime;
+exports._REMOTE_FETCH_COOLDOWN_MS = REMOTE_FETCH_COOLDOWN_MS;
 exports.pathPrefix = '';
 
 exports.registerApi = (env) => {
@@ -130,7 +136,7 @@ exports.registerApi = (env) => {
         logger.debug(`[${this.watcherId}] path does not exist`, item);
         return;
       }
-      const watcher = chokidar.watch(item, { ignored: filter });
+      const watcher = chokidar.watch(item, { ignored: filter, ignoreInitial: true });
       const changed = (changedPath) => {
         console.log(
           `${new Date().toISOString()} [ACTION:WATCHER] [${this.watcherId}] ${name} changed: ${changedPath}`
@@ -156,6 +162,7 @@ exports.registerApi = (env) => {
       this.watchers.forEach((w) => w.close());
     }
   }
+  exports._RepoWatcher = RepoWatcher;
 
   const readIgnore = async (pathToWatch) => {
     logger.debug(`Parsing .gitignore for ${pathToWatch}`);
@@ -188,12 +195,13 @@ exports.registerApi = (env) => {
         }
         // We monitor the repo separately
         if (filePath === '.git' || filePath.startsWith('.git' + path.sep)) return ignore;
+        const parts = filePath.split(path.sep);
+        if (parts.includes('node_modules') || parts.includes('.git')) {
+          return ignore;
+        }
         // We add / to test for directories, we can't have a file named like a directory
         // and otherwise directory `foo` won't match ignore `foo/`
         if (gitIgnore.ignores(filePath) || gitIgnore.ignores(`${filePath}/`)) {
-          // TODO https://github.com/kaelzhang/node-ignore/issues/78
-          // optimization: assume these are permanent skips
-          if (filePath.includes('node_modules')) return ignore;
           return ignore;
         }
         return watch;
@@ -495,7 +503,13 @@ exports.registerApi = (env) => {
         })
       );
 
-      jsonResultOrFailProm(res, task).finally(emitGitDirectoryChanged.bind(null, req.query.path));
+      jsonResultOrFailProm(res, task)
+        .finally(() => {
+          if (req.query.path) {
+            lastRemoteFetchTime.set(normalizeWorktreePath(req.query.path), Date.now());
+          }
+        })
+        .finally(emitGitDirectoryChanged.bind(null, req.query.path));
     }
   );
 
@@ -674,31 +688,46 @@ exports.registerApi = (env) => {
     jsonResultOrFailProm(res, task);
   });
 
-  app.get(`${exports.pathPrefix}/refs`, ensureAuthenticated, ensurePathExists, (req, res) => {
-    if (res.setTimeout) res.setTimeout(tenMinTimeoutMs);
+  const getRefs = (repoPath, remoteFetch, socketId) => {
+    const normalizedRepo = normalizeWorktreePath(repoPath);
+    const inFlight = refsInFlightRequests.get(normalizedRepo);
+
+    if (inFlight && (inFlight.remoteFetch || !remoteFetch)) {
+      return inFlight.promise;
+    }
+
+    const shouldPerformFetch =
+      remoteFetch &&
+      (!lastRemoteFetchTime.has(normalizedRepo) ||
+        Date.now() - lastRemoteFetchTime.get(normalizedRepo) >= REMOTE_FETCH_COOLDOWN_MS);
 
     let task = Promise.resolve();
-    if (req.query.remoteFetch) {
-      task = task.then(() =>
-        gitPromise(['remote'], req.query.path).then((remoteText) => {
-          const remotes = remoteText.trim().split('\n');
+    if (shouldPerformFetch) {
+      task = task
+        .then(() =>
+          gitPromise(['remote'], repoPath).then((remoteText) => {
+            const remotes = remoteText.trim().split('\n');
 
-          // making calls serially as credential helpers may get confused to which cred to get.
-          return remotes.reduce((promise, remote) => {
-            if (!remote || remote === '') return promise;
-            return promise.then(() => {
-              return gitPromise({
-                commands: credentialsOption(req.query.socketId, remote).concat(['fetch', remote]),
-                repoPath: req.query.path,
-                timeout: tenMinTimeoutMs,
-              }).catch((e) => logger.warn('err during remote fetch for /refs', e)); // ignore fetch err as it is most likely credential
-            });
-          }, Promise.resolve());
-        })
-      );
+            // making calls serially as credential helpers may get confused to which cred to get.
+            return remotes.reduce((promise, remote) => {
+              if (!remote || remote === '') return promise;
+              return promise.then(() => {
+                return gitPromise({
+                  commands: credentialsOption(socketId, remote).concat(['fetch', remote]),
+                  repoPath: repoPath,
+                  timeout: tenMinTimeoutMs,
+                }).catch((e) => logger.warn('err during remote fetch for /refs', e)); // ignore fetch err as it is most likely credential
+              });
+            }, Promise.resolve());
+          })
+        )
+        .then(() => {
+          lastRemoteFetchTime.set(normalizedRepo, Date.now());
+        });
     }
-    task = task
-      .then(() => gitPromise(['show-ref', '-d'], req.query.path))
+
+    const promise = task
+      .then(() => gitPromise(['show-ref', '-d'], repoPath))
       // On new fresh repos, empty string is returned but has status code of error, simply ignoring them
       .catch((e) => {
         if (e.message !== '') throw e;
@@ -724,8 +753,26 @@ exports.registerApi = (env) => {
             });
         }
         return results;
+      })
+      .finally(() => {
+        const active = refsInFlightRequests.get(normalizedRepo);
+        if (active && active.promise === promise) {
+          refsInFlightRequests.delete(normalizedRepo);
+        }
       });
-    jsonResultOrFailProm(res, task);
+
+    refsInFlightRequests.set(normalizedRepo, {
+      promise,
+      remoteFetch: Boolean(shouldPerformFetch || remoteFetch),
+    });
+
+    return promise;
+  };
+
+  app.get(`${exports.pathPrefix}/refs`, ensureAuthenticated, ensurePathExists, (req, res) => {
+    if (res.setTimeout) res.setTimeout(tenMinTimeoutMs);
+    const remoteFetch = req.query.remoteFetch === 'true' || req.query.remoteFetch === true;
+    jsonResultOrFailProm(res, getRefs(req.query.path, remoteFetch, req.query.socketId));
   });
 
   app.get(`${exports.pathPrefix}/branches`, ensureAuthenticated, ensurePathExists, (req, res) => {

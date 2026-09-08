@@ -91,4 +91,40 @@ describe('client server', () => {
     expect(res1).to.eql([{ path: '/repos/SleepyCats', branch: 'main' }]);
     expect(res2).to.eql([{ path: '/repos/SleepyCats', branch: 'main' }]);
   });
+
+  it('reuses in-flight requests for idempotent read endpoints', async () => {
+    const server = createServer();
+    let requestCount = 0;
+    let resolveCallback;
+    server._httpJsonRequest = (request, callback) => {
+      requestCount += 1;
+      resolveCallback = () => callback(null, { files: {} });
+    };
+
+    const req1 = server.getPromise('/status', { path: '/repos/SleepyCats', fileLimit: 50 });
+    const req2 = server.getPromise('/status', { path: '/repos/SleepyCats', fileLimit: 50 });
+
+    expect(req2).to.be(req1);
+    expect(requestCount).to.be(1);
+
+    resolveCallback();
+    const [res1, res2] = await Promise.all([req1, req2]);
+    expect(res1).to.eql({ files: {} });
+    expect(res2).to.eql({ files: {} });
+  });
+
+  it('invalidates in-flight requests on mutating POST requests', async () => {
+    const server = createServer();
+    let requestCount = 0;
+    server._httpJsonRequest = (request, callback) => {
+      requestCount += 1;
+      callback(null, {});
+    };
+
+    server.getPromise('/status', { path: '/repos/SleepyCats' });
+    await server.postPromise('/commit', { path: '/repos/SleepyCats' });
+    server.getPromise('/status', { path: '/repos/SleepyCats' });
+
+    expect(requestCount).to.be(3);
+  });
 });

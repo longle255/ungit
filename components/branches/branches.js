@@ -72,14 +72,15 @@ class BranchesViewModel extends ComponentRoot {
   }
   async _updateRefs(forceRemoteFetch) {
     const start = Date.now();
-    forceRemoteFetch = forceRemoteFetch || this.shouldAutoFetch || '';
+    const shouldFetch = forceRemoteFetch || this.shouldAutoFetch || '';
+    this.shouldAutoFetch = false;
     console.log(
-      `${new Date().toISOString()} [ACTION:UI BRANCHES] _updateRefs START (forceRemoteFetch: ${forceRemoteFetch})`
+      `${new Date().toISOString()} [ACTION:UI BRANCHES] _updateRefs START (forceRemoteFetch: ${shouldFetch})`
     );
     const branchesProm = this.server.getPromise('/branches', { path: this.repoPath() });
     const refsProm = this.server.getPromise('/refs', {
       path: this.repoPath(),
-      remoteFetch: forceRemoteFetch,
+      remoteFetch: shouldFetch,
     });
 
     try {

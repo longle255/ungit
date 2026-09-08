@@ -217,29 +217,84 @@ Server.prototype._nextOperationId = function () {
     Math.random().toString(36).slice(2, 8)
   );
 };
+var IN_FLIGHT_DEDUPE_URLS = new Set([
+  '/worktrees',
+  '/status',
+  '/quickstatus',
+  '/head',
+  '/branches',
+  '/checkout',
+  '/refs',
+  '/stashes',
+  '/gitlog',
+  '/remotes',
+  '/submodules',
+  '/baserepopath',
+  '/tags',
+]);
+
+function getInFlightKey(url, arg) {
+  if (url === '/worktrees') return (arg && arg.path) || '';
+  if (!arg) return url;
+  try {
+    return url + '?' + JSON.stringify(arg);
+  } catch {
+    return url + '?' + ((arg && arg.path) || '');
+  }
+}
+
+Server.prototype.clearInFlightRequests = function (repoPath) {
+  if (!this._inFlightRequests) return;
+  if (!repoPath) {
+    this._inFlightRequests.clear();
+    if (this._worktreesInFlight) this._worktreesInFlight.clear();
+    return;
+  }
+  for (var key of this._inFlightRequests.keys()) {
+    if (key.indexOf(repoPath) > -1) {
+      this._inFlightRequests.delete(key);
+      if (this._worktreesInFlight) this._worktreesInFlight.delete(key);
+    }
+  }
+};
+
 Server.prototype.getPromise = function (url, arg) {
-  if (url === '/worktrees') {
-    var key = (arg && arg.path) || '';
-    if (!this._worktreesInFlight) this._worktreesInFlight = new Map();
-    if (this._worktreesInFlight.has(key)) {
-      return this._worktreesInFlight.get(key);
+  if (IN_FLIGHT_DEDUPE_URLS.has(url)) {
+    var key = getInFlightKey(url, arg);
+    if (!this._inFlightRequests) this._inFlightRequests = new Map();
+    if (!this._worktreesInFlight) this._worktreesInFlight = this._inFlightRequests;
+    if (this._inFlightRequests.has(key)) {
+      return this._inFlightRequests.get(key);
     }
     var self = this;
     var promise = this.queryPromise('GET', url, arg).finally(function () {
-      if (self._worktreesInFlight) self._worktreesInFlight.delete(key);
+      if (self._inFlightRequests) self._inFlightRequests.delete(key);
+      if (self._worktreesInFlight && self._worktreesInFlight !== self._inFlightRequests) {
+        self._worktreesInFlight.delete(key);
+      }
     });
-    this._worktreesInFlight.set(key, promise);
+    this._inFlightRequests.set(key, promise);
+    if (
+      url === '/worktrees' &&
+      this._worktreesInFlight &&
+      this._worktreesInFlight !== this._inFlightRequests
+    ) {
+      this._worktreesInFlight.set(key, promise);
+    }
     return promise;
   }
   return this.queryPromise('GET', url, arg);
 };
 Server.prototype.postPromise = function (url, arg) {
+  this.clearInFlightRequests(arg && (arg.path || arg.repoPath));
   return this.queryPromise('POST', url, arg);
 };
 Server.prototype.delPromise = function (url, arg) {
+  this.clearInFlightRequests(arg && (arg.path || arg.repoPath));
   return this.queryPromise('DELETE', url, arg);
 };
 Server.prototype.putPromise = function (url, arg) {
+  this.clearInFlightRequests(arg && (arg.path || arg.repoPath));
   return this.queryPromise('PUT', url, arg);
 };
 
