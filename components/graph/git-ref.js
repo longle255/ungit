@@ -72,6 +72,14 @@ class RefViewModel extends Selectable {
     this.value = splitedName[splitedName.length - 1];
     this.label = this.localRefName;
 
+    this.isCopied = ko.observable(false);
+    this.copyIcon = ko.computed(() => {
+      if (this.isCopied()) {
+        return octicons.check ? octicons.check.toSVG({ height: 18 }) : '';
+      }
+      return octicons.copy ? octicons.copy.toSVG({ height: 18 }) : '';
+    });
+
     this.displayHtml = (largeCurrent) => {
       const size = largeCurrent && this.current() ? 26 : 18;
       let prefix = '';
@@ -286,7 +294,6 @@ class RefViewModel extends Selectable {
       navigation.browseTo(`repository?path=${encodePath(worktree.path)}`);
       return Promise.resolve();
     }
-
     const isRemote = this.isRemoteBranch;
     const isLocalCurrent = this.getLocalRef() && this.getLocalRef().current();
 
@@ -323,6 +330,43 @@ class RefViewModel extends Selectable {
           ungit.logger.warn('checkout failed', err);
         }
       });
+  }
+
+  copy() {
+    const text = this.refName;
+    const onSuccess = () => {
+      this.isCopied(true);
+      setTimeout(() => this.isCopied(false), 2000);
+    };
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard
+        .writeText(text)
+        .then(onSuccess)
+        .catch(() => {
+          this.fallbackCopy(text);
+          onSuccess();
+        });
+    } else {
+      this.fallbackCopy(text);
+      onSuccess();
+    }
+  }
+
+  fallbackCopy(text) {
+    if (typeof document === 'undefined') return;
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.top = '-9999px';
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+    } catch {
+      // ignore
+    }
+    document.body.removeChild(textArea);
   }
 }
 

@@ -27,6 +27,16 @@
               dragStart: dragStart, dragEnd: dragEnd, attr: { 'data-ta-name': localRefName, 'data-ta-local': isLocal }"
         >
         </span>
+        <!-- ko if: selected -->
+        <button
+          class="ref-copy-btn"
+          type="button"
+          data-bind="click: copy, clickBubble: false, html: copyIcon, attr: { 'data-ta-action': 'copy-branch-name', title: isCopied() ? 'Copied!' : 'Copy branch name to clipboard' }"
+          data-toggle="tooltip"
+          data-placement="bottom"
+        >
+        </button>
+        <!-- /ko -->
         <!-- /ko -->
 
         <!-- ko foreach: tagsToDisplay -->

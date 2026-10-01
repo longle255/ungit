@@ -13,6 +13,9 @@ describe('graph worktree refs', () => {
     const sandbox = {
       module: { exports: {} },
       exports: {},
+      navigator: args.navigator,
+      setTimeout: global.setTimeout,
+      clearTimeout: global.clearTimeout,
       ungit: {
         logger: {
           warn: () => {},
@@ -26,6 +29,8 @@ describe('graph worktree refs', () => {
             globe: { toSVG: () => '<svg class="globe"></svg>' },
             'git-branch': { toSVG: () => '<svg class="branch"></svg>' },
             tag: { toSVG: () => '<svg class="tag"></svg>' },
+            copy: { toSVG: () => '<svg class="copy"></svg>' },
+            check: { toSVG: () => '<svg class="check"></svg>' },
           };
         }
         if (name === 'ungit-program-events') return { dispatch: () => {} };
@@ -259,5 +264,49 @@ describe('graph worktree refs', () => {
 
     expect(browsedTo).to.eql(['repository?path=%2Frepos%2Fcurrent-hotfix']);
     expect(graph.posts).to.eql([]);
+  });
+
+  it('copies branch name into clipboard and toggles isCopied', async () => {
+    let copiedText = '';
+    const navigator = {
+      clipboard: {
+        writeText: async (text) => {
+          copiedText = text;
+        },
+      },
+    };
+    const RefViewModel = createRefViewModelClass({ navigator });
+    const graph = createGraph('/repos/current', 'main');
+    const ref = new RefViewModel('refs/heads/feature/cool-stuff', graph);
+
+    expect(ref.isCopied()).to.be(false);
+    expect(ref.copyIcon()).to.contain('copy');
+
+    ref.copy();
+    await Promise.resolve();
+
+    expect(copiedText).to.be('feature/cool-stuff');
+    expect(ref.isCopied()).to.be(true);
+    expect(ref.copyIcon()).to.contain('check');
+  });
+
+  it('copies branch refName for remote branches', async () => {
+    let copiedText = '';
+    const navigator = {
+      clipboard: {
+        writeText: async (text) => {
+          copiedText = text;
+        },
+      },
+    };
+    const RefViewModel = createRefViewModelClass({ navigator });
+    const graph = createGraph('/repos/current', 'main');
+    const ref = new RefViewModel('refs/remotes/origin/feature/cool-stuff', graph);
+
+    ref.copy();
+    await Promise.resolve();
+
+    expect(copiedText).to.be('feature/cool-stuff');
+    expect(ref.isCopied()).to.be(true);
   });
 });
