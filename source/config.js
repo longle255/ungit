@@ -55,6 +55,12 @@ const defaultConfig = {
   // Closes the server after x ms of inactivity. Mainly used by the clicktesting.
   autoShutdownTimeout: undefined,
 
+  // Default timeout for git commands in ms
+  gitTimeout: 2 * 60 * 1000, // 2 mins
+
+  // Default timeout for git commit in ms (to accommodate pre-commit hooks)
+  commitTimeout: 10 * 60 * 1000, // 10 mins
+
   // Don't fast forward git mergers. See git merge --no-ff documentation
   noFFMerge: true,
 
@@ -235,6 +241,8 @@ const argv = yargs
     'autoShutdownTimeout',
     'Closes the server after x ms of inactivity. Mainly used by the clicktesting'
   )
+  .describe('gitTimeout', 'Default timeout for git commands in ms')
+  .describe('commitTimeout', 'Default timeout for git commit in ms')
   .describe('noFFMerge', "Don't fast forward git mergers. See git merge --no-ff documentation")
   .boolean('noFFMerge')
   .describe(

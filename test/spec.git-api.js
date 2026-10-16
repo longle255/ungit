@@ -464,4 +464,40 @@ describe('git-api', () => {
       .then(() => common.get(req, '/gitignore', { path: testDir }))
       .then((res) => expect(res.content).to.be(''));
   });
+
+  it('commit with pre-commit hook should succeed when within commitTimeout', async () => {
+    const hookPath = path.join(testDir, '.git', 'hooks', 'pre-commit');
+    await fs.writeFile(hookPath, '#!/bin/sh\nsleep 0.2\nexit 0\n', { mode: 0o755 });
+    const hookFile = 'hookfile.txt';
+    await common.post(req, '/testing/createfile', { file: path.join(testDir, hookFile) });
+    await common.post(req, '/commit', {
+      path: testDir,
+      message: 'test hook commit',
+      files: [{ name: hookFile }],
+    });
+    const log = await common.get(req, '/gitlog', { path: testDir });
+    expect(log.nodes[0].message).to.contain('test hook commit');
+  });
+
+  it('commit with pre-commit hook should fail when timeout is exceeded', async () => {
+    const hookPath = path.join(testDir, '.git', 'hooks', 'pre-commit');
+    await fs.writeFile(hookPath, '#!/bin/sh\nsleep 0.5\nexit 0\n', { mode: 0o755 });
+    const hookFile = 'hooktimeout.txt';
+    await common.post(req, '/testing/createfile', { file: path.join(testDir, hookFile) });
+    const gitPromise = require('../source/git-promise');
+    try {
+      await gitPromise.commit(
+        testDir,
+        false,
+        false,
+        'should timeout',
+        [{ name: hookFile }],
+        null,
+        50
+      );
+      expect().fail('Should have timed out');
+    } catch (err) {
+      expect(err.isGitError).to.be(true);
+    }
+  });
 });

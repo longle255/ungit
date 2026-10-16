@@ -178,7 +178,8 @@ const git = (commands, repoPath, allowError, outPipe, inPipe, timeout, operation
       return element;
     })
   );
-  args.timeout = args.timeout || 2 * 60 * 1000; // Default timeout tasks after 2 min
+  const defaultGitTimeout = Number(config.gitTimeout) || 2 * 60 * 1000;
+  args.timeout = args.timeout || defaultGitTimeout;
   args.startTime = Date.now();
 
   return gitExecutorProm(args, config.lockConflictRetryCount);
@@ -545,7 +546,7 @@ git.applyStashedFile = (repoPath, stashId, filename) => {
     });
 };
 
-git.commit = (repoPath, amend, emptyCommit, message, files, operation) => {
+git.commit = (repoPath, amend, emptyCommit, message, files, operation, timeout) => {
   return new Promise((resolve, reject) => {
     if (message == undefined) {
       reject({ error: 'Must specify commit message' });
@@ -614,13 +615,16 @@ git.commit = (repoPath, amend, emptyCommit, message, files, operation) => {
       const ammendFlag = amend ? '--amend' : '';
       const allowedEmptyFlag = emptyCommit || amend ? '--allow-empty' : '';
       const isGPGSign = config.isForceGPGSign ? '-S' : '';
+      const effectiveCommitTimeout =
+        timeout ||
+        Math.max(Number(config.commitTimeout) || 10 * 60 * 1000, Number(config.gitTimeout) || 0);
       return git(
         ['commit', ammendFlag, allowedEmptyFlag, isGPGSign, '--file=-'],
         repoPath,
         null,
         null,
         message,
-        null,
+        effectiveCommitTimeout,
         operation
       );
     })

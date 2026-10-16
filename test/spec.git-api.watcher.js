@@ -60,4 +60,27 @@ describe('git-api watcher', function () {
     expect(emittedEvents.length).to.be.above(0);
     watcher.close();
   });
+
+  it('should include common heavy and virtual environment directories in defaultIgnoredDirNames', () => {
+    const ignored = restGit._defaultIgnoredDirNames;
+    expect(ignored).to.be.ok();
+    expect(ignored.has('.git')).to.be(true);
+    expect(ignored.has('node_modules')).to.be(true);
+    expect(ignored.has('.venv')).to.be(true);
+    expect(ignored.has('venv')).to.be(true);
+    expect(ignored.has('__pycache__')).to.be(true);
+    expect(ignored.has('.build')).to.be(true);
+    expect(ignored.has('target')).to.be(true);
+  });
+
+  it('should load nested .gitignore rules with directory prefixes', async () => {
+    const subDir = path.join(testDir, 'subpackage');
+    await fs.promises.mkdir(subDir, { recursive: true });
+    await fs.promises.writeFile(path.join(subDir, '.gitignore'), 'ignored-sub/\n*.subtmp\n');
+
+    const ig = await restGit._readIgnore(testDir);
+    expect(ig.ignores('subpackage/ignored-sub/file.txt')).to.be(true);
+    expect(ig.ignores('subpackage/test.subtmp')).to.be(true);
+    expect(ig.ignores('subpackage/valid-file.txt')).to.be(false);
+  });
 });

@@ -124,6 +124,36 @@ exports.registerApi = (env) => {
     });
   }
 
+  const defaultIgnoredDirNames = new Set([
+    '.git',
+    'node_modules',
+    '.venv',
+    'venv',
+    'env',
+    '.env',
+    'virtualenv',
+    '.tox',
+    '__pycache__',
+    '.pytest_cache',
+    '.build',
+    '.swiftpm',
+    'DerivedData',
+    'target',
+    'dist',
+    'build',
+    'out',
+    '.cache',
+    '.turbo',
+    '.next',
+    '.nuxt',
+    'Pods',
+    'Carthage',
+    '.gradle',
+    '.idea',
+    '.vscode',
+  ]);
+  exports._defaultIgnoredDirNames = defaultIgnoredDirNames;
+
   let watcherId = 1;
   class RepoWatcher extends EventEmitter {
     constructor() {
@@ -147,6 +177,9 @@ exports.registerApi = (env) => {
       watcher.on('unlink', changed);
       watcher.on('addDir', changed);
       watcher.on('unlinkDir', changed);
+      watcher.on('error', (err) => {
+        logger.warn(`[${this.watcherId}] ${name} watcher error: ${err.message}`);
+      });
       this.watchers.push(watcher);
     }
     addWorkdir(item, filter) {
@@ -161,31 +194,117 @@ exports.registerApi = (env) => {
   }
   exports._RepoWatcher = RepoWatcher;
 
-  const readIgnore = async (pathToWatch) => {
+  const findGitIgnores = async (dir, root) => {
+    let results = [];
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          if (!defaultIgnoredDirNames.has(entry.name)) {
+            const subResults = await findGitIgnores(path.join(dir, entry.name), root);
+            results.push(...subResults);
+          }
+        } else if (entry.name === '.gitignore') {
+          results.push({
+            relDir: path.relative(root, dir),
+            fullPath: path.join(dir, entry.name),
+          });
+        }
+      }
+    } catch (e) {}
+    return results;
+  };
+
+  const readIgnore = async (pathToWatch, repoPath) => {
     logger.debug(`Parsing .gitignore for ${pathToWatch}`);
     const out = ignore();
-    const ignoreContent = await fs
-      .readFile(path.join(pathToWatch, '.gitignore'), { encoding: 'utf8' })
-      .catch(() => null);
-    if (ignoreContent) out.add(ignoreContent);
+
+    const gitIgnoreFiles = await findGitIgnores(pathToWatch, pathToWatch);
+    for (const { relDir, fullPath } of gitIgnoreFiles) {
+      try {
+        const content = await fs.readFile(fullPath, 'utf8');
+        const lines = content.split('\n');
+        for (let line of lines) {
+          line = line.trim();
+          if (!line || line.startsWith('#')) continue;
+          let isNegative = false;
+          if (line.startsWith('!')) {
+            isNegative = true;
+            line = line.slice(1);
+          }
+          if (line.startsWith('/')) {
+            line = line.slice(1);
+          }
+          const rule = relDir ? `${relDir}/${line}` : line;
+          out.add(isNegative ? `!${rule}` : rule);
+        }
+      } catch (e) {}
+    }
+
+    if (repoPath) {
+      try {
+        const excludeContent = await fs.readFile(path.join(repoPath, 'info', 'exclude'), 'utf8');
+        const lines = excludeContent.split('\n');
+        for (let line of lines) {
+          line = line.trim();
+          if (!line || line.startsWith('#')) continue;
+          out.add(line);
+        }
+      } catch (e) {}
+    }
+
     return out;
   };
+  exports._readIgnore = readIgnore;
 
   // TODO move to nodegit
   const watchRepo = async (pathToWatch) => {
     logger.info(`Start watching ${pathToWatch}`);
     const watcher = new RepoWatcher();
     let repoPath = path.join(pathToWatch, '.git');
-    if ((await fs.access(repoPath).catch(() => false)) === undefined) {
-      // Looks like a repo, let's watch workdir
-      let gitIgnore = await readIgnore(pathToWatch);
+    let isRepo = false;
+    let isBare = false;
+
+    const gitStat = await fs.stat(repoPath).catch(() => null);
+    if (gitStat) {
+      if (gitStat.isDirectory()) {
+        isRepo = true;
+      } else if (gitStat.isFile()) {
+        // Worktree or submodule: .git points to actual git directory
+        try {
+          const content = await fs.readFile(repoPath, 'utf8');
+          const match = content.match(/^gitdir:\s*(.+)$/m);
+          if (match) {
+            repoPath = path.resolve(pathToWatch, match[1].trim());
+            isRepo = true;
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (!isRepo) {
+      const headStat = await fs.stat(path.join(pathToWatch, 'HEAD')).catch(() => null);
+      const objectsStat = await fs.stat(path.join(pathToWatch, 'objects')).catch(() => null);
+      if (headStat && objectsStat) {
+        isBare = true;
+        repoPath = pathToWatch;
+      }
+    }
+
+    if (!isRepo && !isBare) {
+      logger.info(`${pathToWatch} is not a git repository; skipping watchers`);
+      return watcher;
+    }
+
+    if (isRepo) {
+      let gitIgnore = await readIgnore(pathToWatch, repoPath);
       await watcher.addWorkdir(pathToWatch, (watch_path) => {
         const ignore = true,
           watch = false;
         const filePath = path.relative(pathToWatch, watch_path);
         if (!filePath) return watch; // root
-        if (filePath === '.gitignore') {
-          readIgnore(pathToWatch).then(
+        if (filePath === '.gitignore' || filePath.endsWith(path.sep + '.gitignore')) {
+          readIgnore(pathToWatch, repoPath).then(
             (ign) => (gitIgnore = ign),
             (err) => logger.error('Could not parse .gitignore for', pathToWatch, err)
           );
@@ -193,7 +312,7 @@ exports.registerApi = (env) => {
         // We monitor the repo separately
         if (filePath === '.git' || filePath.startsWith('.git' + path.sep)) return ignore;
         const parts = filePath.split(path.sep);
-        if (parts.includes('node_modules') || parts.includes('.git')) {
+        if (parts.some((part) => defaultIgnoredDirNames.has(part))) {
           return ignore;
         }
         // We add / to test for directories, we can't have a file named like a directory
@@ -203,10 +322,8 @@ exports.registerApi = (env) => {
         }
         return watch;
       });
-    } else {
-      // Could be bare
-      repoPath = pathToWatch;
     }
+
     // Here we watch the git state
     await watcher.addGit(path.join(repoPath, 'refs'), (watch_path) => {
       const ignore = true,
@@ -588,6 +705,11 @@ exports.registerApi = (env) => {
   );
 
   app.post(`${exports.pathPrefix}/commit`, ensureAuthenticated, ensurePathExists, (req, res) => {
+    const timeoutMs = Math.max(
+      Number(config.commitTimeout) || 10 * 60 * 1000,
+      Number(config.gitTimeout) || 0
+    );
+    if (res.setTimeout) res.setTimeout(timeoutMs);
     jsonResultOrFailProm(
       res,
       trackedOperation(req, 'commit', req.body.path, (operation) =>
@@ -597,7 +719,8 @@ exports.registerApi = (env) => {
           req.body.emptyCommit,
           req.body.message,
           req.body.files,
-          operation
+          operation,
+          timeoutMs
         )
       )
     )
@@ -979,10 +1102,16 @@ exports.registerApi = (env) => {
     ensureAuthenticated,
     ensurePathExists,
     (req, res) => {
+      const timeoutMs = Math.max(
+        Number(config.commitTimeout) || 10 * 60 * 1000,
+        Number(config.gitTimeout) || 0
+      );
+      if (res.setTimeout) res.setTimeout(timeoutMs);
       const args = {
         commands: ['commit', '--file=-'],
         repoPath: req.body.path,
         inPipe: req.body.message,
+        timeout: timeoutMs,
       };
 
       jsonResultOrFailProm(
@@ -1042,12 +1171,18 @@ exports.registerApi = (env) => {
     ensureAuthenticated,
     ensurePathExists,
     (req, res) => {
+      const timeoutMs = Math.max(
+        Number(config.commitTimeout) || 10 * 60 * 1000,
+        Number(config.gitTimeout) || 0
+      );
+      if (res.setTimeout) res.setTimeout(timeoutMs);
       jsonResultOrFailProm(
         res,
         trackedOperation(req, 'rebase-continue', req.body.path, (operation) =>
           gitPromise({
             commands: ['rebase', '--continue'],
             repoPath: req.body.path,
+            timeout: timeoutMs,
             operation,
           })
         )
