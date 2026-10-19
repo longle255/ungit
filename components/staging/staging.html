@@ -104,7 +104,7 @@
           <div class="commands btn-group btn-group-sm">
             <button class="btn btn-default" disabled data-bind="text: stats"></button>
             <button
-              class="btn btn-default"
+              class="btn btn-default toggle-all-files"
               data-bind="click: toggleAllStages"
               data-toggle="tooltip"
               data-placement="bottom"
@@ -228,6 +228,15 @@
             <div class="diffContainer" data-bind="component: diff"></div>
             <!-- /ko -->
           </div>
+        </div>
+        <div class="file-paging" data-bind="visible: totalFiles() > files().length">
+          <span data-bind="text: files().length + ' of ' + totalFiles() + ' files shown'"></span>
+          <button
+            class="btn btn-default load-more-files"
+            data-bind="click: loadMoreFiles, disable: isLoadingMoreFiles, visible: hasMoreFiles"
+          >
+            Load more
+          </button>
         </div>
       </div>
     </div>

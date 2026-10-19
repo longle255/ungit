@@ -21,6 +21,12 @@ class StagingViewModel extends ComponentRoot {
     this.refreshContent = _.debounce(this._refreshContent, 250, this.defaultDebounceOption);
     this.graph = graph;
     this.filesByPath = {};
+    this.totalFiles = ko.observable(0);
+    this.hasMoreFiles = ko.observable(false);
+    this.isLoadingMoreFiles = ko.observable(false);
+    this.selectAllFiles = ko.observable(false);
+    this._nextStatusOffset = 0;
+    this._statusRequestId = 0;
     this.files = ko.observableArray();
     this.commitMessageTitleCount = ko.observable(0);
     this.commitMessageTitle = ko.observable();
@@ -55,9 +61,11 @@ class StagingViewModel extends ComponentRoot {
     });
     this.HEAD = ko.observable();
     this.isStageValid = ko.computed(() => !this.inRebase() && !this.inMerge() && !this.inCherry());
-    this.nFiles = ko.computed(() => this.files().length);
-    this.nStagedFiles = ko.computed(
-      () => this.files().filter((f) => f.editState() === 'staged').length
+    this.nFiles = ko.computed(() => this.totalFiles());
+    this.nStagedFiles = ko.computed(() =>
+      this.selectAllFiles()
+        ? this.totalFiles()
+        : this.files().filter((f) => f.editState() === 'staged').length
     );
     this.allStageFlag = ko.computed(() => this.nFiles() !== this.nStagedFiles());
     this.stats = ko.computed(() => `${this.nFiles()} files, ${this.nStagedFiles()} to be commited`);
@@ -139,12 +147,16 @@ class StagingViewModel extends ComponentRoot {
     ungit.logger.debug('staging.refreshContent() triggered');
 
     try {
+      const requestId = ++this._statusRequestId;
       const headPromise = this.server.getPromise('/head', { path: this.repoPath(), limit: 1 });
       const statusPromise = this.server.getPromise('/status', {
         path: this.repoPath(),
-        fileLimit: filesToDisplayLimit,
+        offset: 0,
+        limit: filesToDisplayLimit,
       });
-      const log = await headPromise;
+      const [log, status] = await Promise.all([headPromise, statusPromise]);
+      if (requestId !== this._statusRequestId) return;
+
       if (log.length > 0) {
         const array = log[0].message.split('\n');
         this.HEAD({ title: array[0], body: array.slice(2).join('\n') });
@@ -152,19 +164,21 @@ class StagingViewModel extends ComponentRoot {
         this.HEAD(null);
       }
 
-      const status = await statusPromise;
-      if (this.isSamePayload(status)) {
+      // The cached payload describes page 1 only. A refresh after "load more"
+      // must replace the loaded pages with page 1, even if page 1 is unchanged.
+      const multiplePagesLoaded = this.files().length > filesToDisplayLimit;
+      if (!multiplePagesLoaded && this.isSamePayload(status)) {
         return;
       }
 
-      if (Object.keys(status.files).length > filesToDisplayLimit && !this.loadAnyway) {
+      if (status.total > filesToDisplayLimit && !this.loadAnyway) {
         if (this.isDiagOpen) {
           return;
         }
         this.isDiagOpen = true;
         components.showModal('toomanyfilesmodal', {
           title: 'Too many unstaged files',
-          details: 'It is recommended to use command line as ungit may be too slow.',
+          details: `This repository has ${status.total} changed files. Only the first ${filesToDisplayLimit} will be shown at a time.`,
           closeFunc: (isYes) => {
             this.isDiagOpen = false;
             if (isYes) {
@@ -190,7 +204,11 @@ class StagingViewModel extends ComponentRoot {
   }
 
   loadStatus(status) {
-    this.setFiles(status.files);
+    this.totalFiles(status.total || 0);
+    this.hasMoreFiles(!!status.hasMore);
+    this._nextStatusOffset = (status.offset || 0) + Object.keys(status.files).length;
+    this.setFiles(status.files, false);
+
     this.inRebase(!!status.inRebase);
     this.inMerge(!!status.inMerge);
     // There are time where '.git/CHERRY_PICK_HEAD' file is created and no files are in conflicts.
@@ -209,7 +227,7 @@ class StagingViewModel extends ComponentRoot {
     }
   }
 
-  setFiles(files) {
+  setFiles(files, append) {
     const newFiles = [];
     for (const fileStatus of Object.values(files)) {
       let fileViewModel = this.filesByPath[fileStatus.fileName];
@@ -220,15 +238,42 @@ class StagingViewModel extends ComponentRoot {
           fileStatus.oldFileName,
           fileStatus.displayName
         );
-      } else {
-        // this is mainly for patching and it may not fire due to the fact that
-        // '/commit' triggers working-tree-changed which triggers throttled refresh
-        fileViewModel.diff().invalidateDiff();
       }
       fileViewModel.setState(fileStatus);
       newFiles.push(fileViewModel);
     }
-    this.files(newFiles);
+    if (!append) {
+      const active = new Set(Object.keys(files));
+      for (const name of Object.keys(this.filesByPath)) {
+        if (!active.has(name)) {
+          if (this.filesByPath[name].diff()) this.filesByPath[name].diff(null);
+          delete this.filesByPath[name];
+        }
+      }
+    }
+    this.files(append ? this.files().concat(newFiles) : newFiles);
+  }
+
+  async loadMoreFiles() {
+    if (this.isLoadingMoreFiles() || !this.hasMoreFiles()) return;
+    this.isLoadingMoreFiles(true);
+    const requestId = ++this._statusRequestId;
+    try {
+      const status = await this.server.getPromise('/status', {
+        path: this.repoPath(),
+        offset: this._nextStatusOffset,
+        limit: filesToDisplayLimit,
+      });
+      if (requestId !== this._statusRequestId) return;
+      this.totalFiles(status.total || 0);
+      this._nextStatusOffset = status.offset + Object.keys(status.files).length;
+      this.hasMoreFiles(!!status.hasMore);
+      this.setFiles(status.files, true);
+    } catch (err) {
+      this.server.unhandledRejection(err);
+    } finally {
+      this.isLoadingMoreFiles(false);
+    }
   }
 
   toggleAmend() {
@@ -258,7 +303,7 @@ class StagingViewModel extends ComponentRoot {
     this.commitMessageBody('');
     for (const key in this.filesByPath) {
       const element = this.filesByPath[key];
-      element.diff().invalidateDiff();
+      if (element.diff()) element.diff().invalidateDiff();
       element.patchLineList.removeAll();
       element.isShowingDiffs(false);
       element.editState(element.editState() === 'patched' ? 'none' : element.editState());
@@ -284,6 +329,7 @@ class StagingViewModel extends ComponentRoot {
         files,
         amend: this.amend(),
         emptyCommit: this.emptyCommit(),
+        selectAll: this.selectAllFiles(),
       })
       .then(() => {
         this.resetMessages();
@@ -310,6 +356,7 @@ class StagingViewModel extends ComponentRoot {
         files,
         amend: this.amend(),
         emptyCommit: this.emptyCommit(),
+        selectAll: this.selectAllFiles(),
       })
       .then(() => {
         this.resetMessages();
@@ -351,7 +398,7 @@ class StagingViewModel extends ComponentRoot {
 
   invalidateFilesDiffs() {
     this.files().forEach((file) => {
-      file.diff().invalidateDiff();
+      if (file.diff()) file.diff().invalidateDiff();
     });
   }
 
@@ -379,10 +426,20 @@ class StagingViewModel extends ComponentRoot {
   }
 
   toggleAllStages() {
-    const allStageFlag = this.allStageFlag();
-    for (const n in this.files()) {
-      this.files()[n].editState(allStageFlag ? 'staged' : 'none');
+    const turnOn = this.allStageFlag();
+    if (turnOn && this.hasMoreFiles()) {
+      this.selectAllFiles(true);
+      this.files().forEach((file) => {
+        file.editState('staged');
+        file.patchLineList.removeAll();
+      });
+      return;
     }
+    this.selectAllFiles(false);
+    this.files().forEach((file) => {
+      file.editState(turnOn ? 'staged' : 'none');
+      file.patchLineList.removeAll();
+    });
   }
 
   onEnter(d, e) {
@@ -428,14 +485,17 @@ class FileViewModel {
     });
     this.fileType = ko.observable('text');
     this.patchLineList = ko.observableArray();
-    this.diff = ko.observable();
+    this._diffStateKey = null;
+    this.diff = ko.observable(null);
     this.isShowPatch = ko.computed(
       () =>
         // if not new file
         // and if not merging
         // and if not rebasing
+        // and if not selecting the whole repository
         // and if text file
         // and if diff is showing, display patch button
+        !staging.selectAllFiles() &&
         !this.isNew() &&
         !staging.inMerge() &&
         !staging.inRebase() &&
@@ -448,9 +508,14 @@ class FileViewModel {
       if (value === 'none') {
         this.patchLineList.removeAll();
       } else if (value === 'patched') {
-        if (this.diff().render) this.diff().render();
+        if (this.diff() && this.diff().render) this.diff().render();
       }
     });
+  }
+
+  ensureDiff() {
+    if (!this.diff()) this.diff(this.getSpecificDiff());
+    return this.diff();
   }
 
   getSpecificDiff() {
@@ -478,16 +543,30 @@ class FileViewModel {
     this.fileType(state.type);
     this.additions(state.additions != '-' ? `+${state.additions}` : '');
     this.deletions(state.deletions != '-' ? `-${state.deletions}` : '');
-    if (this.diff()) {
+    const nextKey = JSON.stringify([
+      state.fileName,
+      state.oldFileName,
+      state.displayName,
+      state.isNew,
+      state.removed,
+      state.conflict,
+      state.renamed,
+      state.type,
+      state.additions,
+      state.deletions,
+    ]);
+    if (this._diffStateKey !== null && nextKey !== this._diffStateKey && this.diff()) {
       this.diff().invalidateDiff();
-    } else {
-      this.diff(this.getSpecificDiff());
     }
-    if (this.diff().isNew) this.diff().isNew(state.isNew);
-    if (this.diff().isRemoved) this.diff().isRemoved(state.removed);
+    this._diffStateKey = nextKey;
+    if (this.diff()) {
+      if (this.diff().isNew) this.diff().isNew(state.isNew);
+      if (this.diff().isRemoved) this.diff().isRemoved(state.removed);
+    }
   }
 
   toggleStaged() {
+    this.staging.selectAllFiles(false);
     if (this.editState() === 'none') {
       this.editState('staged');
     } else {
@@ -554,6 +633,7 @@ class FileViewModel {
   }
 
   toggleDiffs() {
+    if (!this.isShowingDiffs()) this.ensureDiff();
     this.isShowingDiffs(!this.isShowingDiffs());
   }
 

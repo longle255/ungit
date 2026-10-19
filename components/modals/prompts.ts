@@ -70,7 +70,7 @@ class TooManyFilesModalViewModel extends PromptModalViewModel {
   constructor(title: string, details: string, closeFunc: Function) {
     super(title, 'yes-no-modal', details, closeFunc);
     this.promptOptions.push(new PromptOptions(`Don't load`, true, 'noLoad', this.closeYes.bind(this)));
-    this.promptOptions.push(new PromptOptions(`Load anyway`, false, 'loadAnyway', this.closeNo.bind(this)));
+    this.promptOptions.push(new PromptOptions(`Show first 50 files`, false, 'loadAnyway', this.closeNo.bind(this)));
   }
 }
 
