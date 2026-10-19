@@ -79,6 +79,20 @@ exports._lastRemoteFetchTime = lastRemoteFetchTime;
 exports._REMOTE_FETCH_COOLDOWN_MS = REMOTE_FETCH_COOLDOWN_MS;
 exports.pathPrefix = '';
 
+const createPathDebouncer = (callback, wait = 500, maxWait = 1000) => {
+  const debouncers = new Map();
+  return (repoPath) => {
+    if (!repoPath) return;
+    let debounced = debouncers.get(repoPath);
+    if (!debounced) {
+      debounced = _.debounce((target) => callback(target), wait, { maxWait });
+      debouncers.set(repoPath, debounced);
+    }
+    debounced(repoPath);
+  };
+};
+exports._createPathDebouncer = createPathDebouncer;
+
 exports.registerApi = (env) => {
   const app = env.app;
   const ensureAuthenticated = env.ensureAuthenticated || ((req, res, next) => next());
@@ -382,32 +396,20 @@ exports.registerApi = (env) => {
     }
   };
 
-  const emitWorkingTreeChanged = _.debounce(
-    (repoPath) => {
-      if (repoPath) {
-        invalidateWorktreeStatus(repoPath);
-      }
-      if (io && repoPath) {
-        io.in(path.normalize(repoPath)).emit('working-tree-changed', { repository: repoPath });
-        logger.info('emitting working-tree-changed to sockets, manually triggered');
-      }
-    },
-    500,
-    { maxWait: 1000 }
-  );
-  const emitGitDirectoryChanged = _.debounce(
-    (repoPath) => {
-      if (repoPath) {
-        invalidateWorktreeStatus(repoPath);
-      }
-      if (io && repoPath) {
-        io.in(path.normalize(repoPath)).emit('git-directory-changed', { repository: repoPath });
-        logger.info('emitting git-directory-changed to sockets, manually triggered');
-      }
-    },
-    500,
-    { maxWait: 1000 }
-  );
+  const emitWorkingTreeChanged = createPathDebouncer((repoPath) => {
+    invalidateWorktreeStatus(repoPath);
+    if (io) {
+      io.in(path.normalize(repoPath)).emit('working-tree-changed', { repository: repoPath });
+      logger.info('emitting working-tree-changed to sockets, manually triggered');
+    }
+  });
+  const emitGitDirectoryChanged = createPathDebouncer((repoPath) => {
+    invalidateWorktreeStatus(repoPath);
+    if (io) {
+      io.in(path.normalize(repoPath)).emit('git-directory-changed', { repository: repoPath });
+      logger.info('emitting git-directory-changed to sockets, manually triggered');
+    }
+  });
 
   const autoStashExecuteAndPop = (
     commands,

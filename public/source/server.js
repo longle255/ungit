@@ -207,7 +207,7 @@ var IN_FLIGHT_DEDUPE_URLS = new Set([
 ]);
 
 function getInFlightKey(url, arg) {
-  if (url === '/worktrees') return (arg && arg.path) || '';
+  if (url === '/worktrees') return '/worktrees?' + ((arg && arg.path) || '');
   if (!arg) return url;
   try {
     return url + '?' + JSON.stringify(arg);
@@ -215,18 +215,25 @@ function getInFlightKey(url, arg) {
     return url + '?' + ((arg && arg.path) || '');
   }
 }
+Server._getInFlightKey = getInFlightKey;
 
 Server.prototype.clearInFlightRequests = function (repoPath) {
   if (!this._inFlightRequests) return;
   if (!repoPath) {
     this._inFlightRequests.clear();
-    if (this._worktreesInFlight) this._worktreesInFlight.clear();
+    if (this._inFlightPaths) this._inFlightPaths.clear();
+    if (this._worktreesInFlight && this._worktreesInFlight !== this._inFlightRequests) {
+      this._worktreesInFlight.clear();
+    }
     return;
   }
-  for (var key of this._inFlightRequests.keys()) {
-    if (key.indexOf(repoPath) > -1) {
+  for (const [key, pathValue] of this._inFlightPaths || []) {
+    if (pathValue === repoPath) {
       this._inFlightRequests.delete(key);
-      if (this._worktreesInFlight) this._worktreesInFlight.delete(key);
+      this._inFlightPaths.delete(key);
+      if (this._worktreesInFlight && this._worktreesInFlight !== this._inFlightRequests) {
+        this._worktreesInFlight.delete(key);
+      }
     }
   }
 };
@@ -235,6 +242,8 @@ Server.prototype.getPromise = function (url, arg) {
   if (IN_FLIGHT_DEDUPE_URLS.has(url)) {
     var key = getInFlightKey(url, arg);
     if (!this._inFlightRequests) this._inFlightRequests = new Map();
+    if (!this._inFlightPaths) this._inFlightPaths = new Map();
+    this._inFlightPaths.set(key, (arg && (arg.path || arg.repoPath)) || null);
     if (!this._worktreesInFlight) this._worktreesInFlight = this._inFlightRequests;
     if (this._inFlightRequests.has(key)) {
       return this._inFlightRequests.get(key);
@@ -242,6 +251,7 @@ Server.prototype.getPromise = function (url, arg) {
     var self = this;
     var promise = this.queryPromise('GET', url, arg).finally(function () {
       if (self._inFlightRequests) self._inFlightRequests.delete(key);
+      if (self._inFlightPaths) self._inFlightPaths.delete(key);
       if (self._worktreesInFlight && self._worktreesInFlight !== self._inFlightRequests) {
         self._worktreesInFlight.delete(key);
       }

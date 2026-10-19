@@ -127,4 +127,22 @@ describe('client server', () => {
 
     expect(requestCount).to.be(3);
   });
+
+  it('keys worktrees by endpoint and clears only the exact repository', () => {
+    const server = createServer();
+    expect(server.constructor._getInFlightKey('/worktrees', { path: '/repos/a' })).to.be(
+      '/worktrees?/repos/a'
+    );
+    server._inFlightRequests = new Map([
+      ['/status?{"path":"/repos/a"}', 'a'],
+      ['/status?{"path":"/repos/ab"}', 'b'],
+    ]);
+    server._inFlightPaths = new Map([
+      ['/status?{"path":"/repos/a"}', '/repos/a'],
+      ['/status?{"path":"/repos/ab"}', '/repos/ab'],
+    ]);
+    server.clearInFlightRequests('/repos/a');
+    expect(server._inFlightRequests.has('/status?{"path":"/repos/a"}')).to.be(false);
+    expect(server._inFlightRequests.has('/status?{"path":"/repos/ab"}')).to.be(true);
+  });
 });

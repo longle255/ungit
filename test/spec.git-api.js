@@ -666,3 +666,15 @@ describe('commit all', () => {
     expect(status.total).to.be(0);
   });
 });
+
+describe('path debouncer', () => {
+  it('emits for two repositories in one window', async () => {
+    const seen = [];
+    const emit = restGit._createPathDebouncer((repoPath) => seen.push(repoPath), 10, 50);
+    emit('/repos/a');
+    emit('/repos/b');
+    emit('/repos/a');
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(seen.sort()).to.eql(['/repos/a', '/repos/b']);
+  });
+});
