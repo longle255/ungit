@@ -633,3 +633,36 @@ describe('status pagination mixed statuses', () => {
     expect(second.files['staged.txt'].additions).to.not.be('-');
   });
 });
+
+describe('commit all', () => {
+  let dir;
+
+  before(async () => {
+    dir = await common.initRepo(req);
+    await common.post(req, '/testing/createfile', {
+      path: dir,
+      file: path.join(dir, 'a.txt'),
+    });
+    await common.post(req, '/testing/createfile', {
+      path: dir,
+      file: path.join(dir, 'b.txt'),
+    });
+    await common.post(req, '/testing/createfile', {
+      path: dir,
+      file: path.join(dir, 'c.txt'),
+    });
+  });
+
+  after(() => common.post(req, '/testing/cleanup'));
+
+  it('commits every status entry when selectAll is true', async () => {
+    await common.post(req, '/commit', {
+      path: dir,
+      message: 'commit all',
+      files: [],
+      selectAll: true,
+    });
+    const status = await common.get(req, '/status', { path: dir, limit: 50 });
+    expect(status.total).to.be(0);
+  });
+});

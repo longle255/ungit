@@ -759,7 +759,8 @@ exports.registerApi = (env) => {
           req.body.message,
           req.body.files,
           operation,
-          timeoutMs
+          timeoutMs,
+          { selectAll: req.body.selectAll === true }
         )
       )
     )

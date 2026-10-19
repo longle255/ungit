@@ -594,12 +594,13 @@ git.applyStashedFile = (repoPath, stashId, filename) => {
     });
 };
 
-git.commit = (repoPath, amend, emptyCommit, message, files, operation, timeout) => {
+git.commit = (repoPath, amend, emptyCommit, message, files, operation, timeout, options = {}) => {
+  const { selectAll = false } = options;
   return new Promise((resolve, reject) => {
     if (message == undefined) {
       reject({ error: 'Must specify commit message' });
     }
-    if ((!Array.isArray(files) || files.length == 0) && !amend && !emptyCommit) {
+    if ((!Array.isArray(files) || files.length == 0) && !amend && !emptyCommit && !selectAll) {
       reject({ error: 'Must specify files or amend to commit' });
     }
     resolve();
@@ -608,6 +609,10 @@ git.commit = (repoPath, amend, emptyCommit, message, files, operation, timeout) 
       return git.status(repoPath, null, { includeStats: false });
     })
     .then((status) => {
+      if (selectAll) {
+        return git(['add', '-A'], repoPath);
+      }
+
       const toAdd = [];
       const toRemove = [];
       const promises = []; // promises that patches each files individually
