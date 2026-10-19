@@ -133,6 +133,9 @@ describe('graph worktree refs', () => {
             },
           };
         }
+        if (name === '../../public/source/request-gate') {
+          return require('../public/source/request-gate');
+        }
         throw new Error(`Unexpected require: ${name}`);
       },
     };

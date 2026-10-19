@@ -7,6 +7,7 @@ const filesToDisplayIncrmentBy = 50;
 const filesToDisplayLimit = filesToDisplayIncrmentBy;
 const mergeTool = ungit.config.mergeTool;
 const { ComponentRoot } = require('../ComponentRoot');
+const RequestGate = require('../../public/source/request-gate');
 
 components.register(
   'staging',
@@ -18,7 +19,10 @@ class StagingViewModel extends ComponentRoot {
     super();
     this.server = server;
     this.repoPath = repoPath;
-    this.refreshContent = _.debounce(this._refreshContent, 250, this.defaultDebounceOption);
+    this._statusGate = new RequestGate();
+    this._refreshInFlight = false;
+    this._refreshQueued = false;
+    this.refreshContent = _.debounce(this._runRefresh, 250, this.defaultDebounceOption);
     this.graph = graph;
     this.filesByPath = {};
     this.totalFiles = ko.observable(0);
@@ -26,7 +30,6 @@ class StagingViewModel extends ComponentRoot {
     this.isLoadingMoreFiles = ko.observable(false);
     this.selectAllFiles = ko.observable(false);
     this._nextStatusOffset = 0;
-    this._statusRequestId = 0;
     this.files = ko.observableArray();
     this.commitMessageTitleCount = ko.observable(0);
     this.commitMessageTitle = ko.observable();
@@ -143,11 +146,28 @@ class StagingViewModel extends ComponentRoot {
     }
   }
 
+  async _runRefresh() {
+    if (this._refreshInFlight) {
+      this._refreshQueued = true;
+      return;
+    }
+    this._refreshInFlight = true;
+    try {
+      await this._refreshContent();
+    } finally {
+      this._refreshInFlight = false;
+      if (this._refreshQueued) {
+        this._refreshQueued = false;
+        this.refreshContent();
+      }
+    }
+  }
+
   async _refreshContent() {
     ungit.logger.debug('staging.refreshContent() triggered');
 
     try {
-      const requestId = ++this._statusRequestId;
+      const token = this._statusGate.begin();
       const headPromise = this.server.getPromise('/head', { path: this.repoPath(), limit: 1 });
       const statusPromise = this.server.getPromise('/status', {
         path: this.repoPath(),
@@ -155,7 +175,7 @@ class StagingViewModel extends ComponentRoot {
         limit: filesToDisplayLimit,
       });
       const [log, status] = await Promise.all([headPromise, statusPromise]);
-      if (requestId !== this._statusRequestId) return;
+      if (!this._statusGate.isCurrent(token)) return;
 
       if (log.length > 0) {
         const array = log[0].message.split('\n');
@@ -257,14 +277,14 @@ class StagingViewModel extends ComponentRoot {
   async loadMoreFiles() {
     if (this.isLoadingMoreFiles() || !this.hasMoreFiles()) return;
     this.isLoadingMoreFiles(true);
-    const requestId = ++this._statusRequestId;
+    const token = this._statusGate.begin();
     try {
       const status = await this.server.getPromise('/status', {
         path: this.repoPath(),
         offset: this._nextStatusOffset,
         limit: filesToDisplayLimit,
       });
-      if (requestId !== this._statusRequestId) return;
+      if (!this._statusGate.isCurrent(token)) return;
       this.totalFiles(status.total || 0);
       this._nextStatusOffset = status.offset + Object.keys(status.files).length;
       this.hasMoreFiles(!!status.hasMore);

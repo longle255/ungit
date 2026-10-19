@@ -7,6 +7,7 @@ const GitNodeViewModel = require('./git-node');
 const GitRefViewModel = require('./git-ref');
 const EdgeViewModel = require('./edge');
 const { ComponentRoot } = require('../ComponentRoot');
+const RequestGate = require('../../public/source/request-gate');
 const numberOfNodesPerLoad = ungit.config.numberOfNodesPerLoad;
 
 components.register(
@@ -22,7 +23,10 @@ class GraphViewModel extends ComponentRoot {
     this._worktreesRequest = null;
     this.updateBranches = _.debounce(this._updateBranches, 250, this.defaultDebounceOption);
     this.updateWorktrees = _.debounce(this._updateWorktrees, 250, this.defaultDebounceOption);
-    this.loadNodesFromApi = _.debounce(this._loadNodesFromApi, 250, this.defaultDebounceOption);
+    this._loadGate = new RequestGate();
+    this._loadInFlight = false;
+    this._queuedLoadMode = null;
+    this.loadNodesFromApi = _.debounce(this._runLoadNodesFromApi, 250, this.defaultDebounceOption);
     this._markIdeologicalStamp = 0;
     this.repoPath = repoPath;
     this.limit = ko.observable(numberOfNodesPerLoad);
@@ -119,18 +123,36 @@ class GraphViewModel extends ComponentRoot {
     return refViewModel;
   }
 
-  async _loadNodesFromApi() {
+  async _runLoadNodesFromApi(mode = 'reset') {
+    if (this._loadInFlight) {
+      this._queuedLoadMode = mode === 'reset' ? 'reset' : this._queuedLoadMode || mode;
+      return;
+    }
+    this._loadInFlight = true;
+    try {
+      await this._loadNodesFromApi(mode);
+    } finally {
+      this._loadInFlight = false;
+      const queued = this._queuedLoadMode;
+      this._queuedLoadMode = null;
+      if (queued) this.loadNodesFromApi(queued);
+    }
+  }
+
+  async _loadNodesFromApi(mode = 'reset') {
     this._isLoadNodesFromApiRunning = true;
-    ungit.logger.debug('graph.loadNodesFromApi() triggered');
+    ungit.logger.debug(`graph.loadNodesFromApi() triggered (${mode})`);
     const nodeSize = this.nodes().length;
     const edges = [];
 
     try {
+      const token = this._loadGate.begin();
       const log = await this.server.getPromise('/gitlog', {
         path: this.repoPath(),
         limit: this.limit(),
         skip: this.skip(),
       });
+      if (!this._loadGate.isCurrent(token)) return;
       if (this.isSamePayload(log)) {
         return;
       }
