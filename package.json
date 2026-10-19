@@ -18,6 +18,7 @@
     "watch": "nodemon -C --exec \"npm run build\" -e js,less -w public/source -w public/less -w components/ -i \"*.bundle.js\"",
     "bumpdependencies": "ncu --upgrade --reject jquery --reject bootstrap",
     "perf:backend": "node scripts/performance/run-backend.js",
+    "perf:browser": "node scripts/performance/run-browser.js",
     "electronpackage": "node ./scripts/electronpackage.js",
     "electronzip": "node ./scripts/electronzip.js"
   },
