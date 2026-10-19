@@ -678,3 +678,44 @@ describe('path debouncer', () => {
     expect(seen.sort()).to.eql(['/repos/a', '/repos/b']);
   });
 });
+
+const { createPerformanceRepo } = require('../scripts/performance/fixtures');
+
+describe('gitlog pagination', () => {
+  let fixture;
+
+  before(async () => {
+    fixture = await createPerformanceRepo({
+      commits: 59,
+      branches: 3,
+      stagedFiles: 0,
+      unstagedFiles: 0,
+      untrackedFiles: 0,
+    });
+  });
+
+  after(async () => fixture.cleanup());
+
+  it('returns disjoint pages in stable order', async () => {
+    const first = await common.get(req, '/gitlog', { path: fixture.repoPath, limit: 10, skip: 0 });
+    const second = await common.get(req, '/gitlog', {
+      path: fixture.repoPath,
+      limit: 10,
+      skip: 10,
+    });
+    const firstShas = first.nodes.map((node) => node.sha1);
+    const secondShas = second.nodes.map((node) => node.sha1);
+    expect(firstShas).to.have.length(10);
+    expect(secondShas).to.have.length(10);
+    expect(firstShas.some((sha1) => secondShas.includes(sha1))).to.be(false);
+
+    const pages = await Promise.all(
+      [0, 10, 20, 30, 40, 50].map((skip) =>
+        common.get(req, '/gitlog', { path: fixture.repoPath, limit: 10, skip })
+      )
+    );
+    const allShas = pages.flatMap((page) => page.nodes.map((node) => node.sha1));
+    expect(allShas).to.have.length(60);
+    expect(new Set(allShas).size).to.be(60);
+  });
+});

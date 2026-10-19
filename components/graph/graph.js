@@ -29,8 +29,11 @@ class GraphViewModel extends ComponentRoot {
     this.loadNodesFromApi = _.debounce(this._runLoadNodesFromApi, 250, this.defaultDebounceOption);
     this._markIdeologicalStamp = 0;
     this.repoPath = repoPath;
-    this.limit = ko.observable(numberOfNodesPerLoad);
-    this.skip = ko.observable(0);
+    this.pageSize = numberOfNodesPerLoad;
+    this.firstSkip = ko.observable(0);
+    this.nextSkip = 0;
+    this.hasMoreNodes = ko.observable(true);
+    this.isLoadingNodes = ko.observable(false);
     this.server = server;
     this.currentRemote = ko.observable();
     this.nodes = ko.observableArray();
@@ -54,17 +57,16 @@ class GraphViewModel extends ComponentRoot {
     this.currentActionContext = ko.observable();
     this.scrolledToEnd = _.debounce(
       () => {
-        this.limit(numberOfNodesPerLoad + this.limit());
-        this.loadNodesFromApi();
+        if (this.isLoadingNodes() || !this.hasMoreNodes()) return;
+        this.loadNodesFromApi('append');
       },
       500,
       true
     );
     this.loadAhead = _.debounce(
       () => {
-        if (this.skip() <= 0) return;
-        this.skip(Math.max(this.skip() - numberOfNodesPerLoad, 0));
-        this.loadNodesFromApi();
+        // The current flow starts at skip 0, so there is no earlier page to prepend.
+        // Keep the existing control inert rather than adding an unreachable request path.
       },
       500,
       true
@@ -140,51 +142,105 @@ class GraphViewModel extends ComponentRoot {
   }
 
   async _loadNodesFromApi(mode = 'reset') {
+    const token = this._loadGate.begin();
+    this.isLoadingNodes(true);
     this._isLoadNodesFromApiRunning = true;
     ungit.logger.debug(`graph.loadNodesFromApi() triggered (${mode})`);
-    const nodeSize = this.nodes().length;
-    const edges = [];
-
     try {
-      const token = this._loadGate.begin();
+      const skip = mode === 'append' ? this.nextSkip : 0;
+
       const log = await this.server.getPromise('/gitlog', {
         path: this.repoPath(),
-        limit: this.limit(),
-        skip: this.skip(),
+        limit: this.pageSize,
+        skip,
       });
       if (!this._loadGate.isCurrent(token)) return;
-      if (this.isSamePayload(log)) {
-        return;
-      }
-      const nodes = this.computeNode(
-        (log.nodes || []).map((logEntry) => {
-          return this.getNode(logEntry.sha1, logEntry); // convert to node object
-        })
-      );
+      if (mode === 'reset' && this.isSamePayload(log)) return;
 
-      // create edges
-      nodes.forEach((node) => {
-        node.parents().forEach((parentSha1) => {
-          edges.push(this.getEdge(node.sha1, parentSha1));
-        });
-        node.render();
-      });
-
-      this.edges(edges);
-      this.nodes(nodes);
-      if (nodes.length > 0) {
-        this.graphHeight(nodes[nodes.length - 1].cy() + 80);
+      const entries = log.nodes || [];
+      if (mode === 'reset') {
+        this.resetGraph(entries, skip);
+      } else {
+        this.appendGraph(entries);
       }
-      this.graphWidth(1000 + this.heighstBranchOrder * 90);
     } catch (e) {
       this.server.unhandledRejection(e);
     } finally {
-      if (window.innerHeight - this.graphHeight() > 0 && nodeSize != this.nodes().length) {
+      this.isLoadingNodes(false);
+      this._isLoadNodesFromApiRunning = false;
+      if (window.innerHeight - this.graphHeight() > 0 && this.nodes().length > 0) {
         this.scrolledToEnd();
       }
-      this._isLoadNodesFromApiRunning = false;
       ungit.logger.debug('graph.loadNodesFromApi() finished');
     }
+  }
+
+  dedupeEntries(entries, knownShas) {
+    const seen = new Set(knownShas);
+    return entries.filter((entry) => {
+      if (seen.has(entry.sha1)) return false;
+      seen.add(entry.sha1);
+      return true;
+    });
+  }
+
+  resetGraph(entries, skip) {
+    this._loadGate.invalidate();
+    const uniqueEntries = this.dedupeEntries(entries);
+    this.firstSkip(skip);
+    this.nextSkip = skip + uniqueEntries.length;
+    this.hasMoreNodes(entries.length >= this.pageSize);
+    const nodes = this.computeNode(uniqueEntries.map((entry) => this.getNode(entry.sha1, entry)));
+    this.nodes(nodes);
+    this.edges(this.buildEdges(nodes));
+    nodes.forEach((node) => node.render());
+    this.updateGraphSize(nodes);
+  }
+
+  appendGraph(entries) {
+    if (entries.length === 0) {
+      this.hasMoreNodes(false);
+      return;
+    }
+    const previous = this.nodes();
+    const beforePositions = new Map(
+      previous.map((node) => [node.sha1, `${node.branchOrder()}|${node.cx()}|${node.cy()}`])
+    );
+    const existingShas = new Set(previous.map((node) => node.sha1));
+    // An active-branch search can make /gitlog return several overlapping
+    // windows in one response; keep only the nodes we have not seen yet.
+    const uniqueEntries = this.dedupeEntries(entries, existingShas);
+    const newNodes = uniqueEntries.map((entry) => this.getNode(entry.sha1, entry));
+    const combined = this.computeNode(previous.concat(newNodes));
+    const orderChanged =
+      combined.length < previous.length || previous.some((node, index) => combined[index] !== node);
+    const positionChanged = combined.some((node) => {
+      const before = beforePositions.get(node.sha1);
+      if (before === undefined) return false;
+      return before !== `${node.branchOrder()}|${node.cx()}|${node.cy()}`;
+    });
+    const newShas = new Set(newNodes.map((node) => node.sha1));
+    const renderSet = new Set(combined.filter((node) => newShas.has(node.sha1)));
+    if (orderChanged || positionChanged) previous.forEach((node) => renderSet.add(node));
+    renderSet.forEach((node) => node.render());
+    this.nodes(combined);
+    this.edges(this.buildEdges(combined));
+    this.nextSkip += uniqueEntries.length;
+    this.hasMoreNodes(entries.length >= this.pageSize);
+    this.updateGraphSize(combined);
+  }
+
+  buildEdges(nodes) {
+    const edges = [];
+    nodes.forEach((node) => {
+      node.parents().forEach((parentSha1) => edges.push(this.getEdge(node.sha1, parentSha1)));
+    });
+    return edges;
+  }
+
+  updateGraphSize(nodes) {
+    if (nodes.length > 0) this.graphHeight(nodes[nodes.length - 1].cy() + 80);
+    this.graphWidth(1000 + this.heighstBranchOrder * 90);
   }
 
   traverseNodeLeftParents(node, callback) {
