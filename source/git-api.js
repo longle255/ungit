@@ -232,6 +232,72 @@ exports.registerApi = (env) => {
     return results;
   };
 
+  class GitIgnoreIndex {
+    constructor(pathToWatch, repoPath, finder = findGitIgnores) {
+      this.pathToWatch = pathToWatch;
+      this.repoPath = repoPath;
+      this.finder = finder;
+      this.files = new Map();
+      this.excludePath = path.join(repoPath, 'info', 'exclude');
+      this.excludeContent = '';
+      this.matcher = ignore();
+    }
+
+    async load() {
+      const entries = await this.finder(this.pathToWatch, this.pathToWatch);
+      for (const entry of entries) {
+        const content = await fs.readFile(entry.fullPath, 'utf8').catch(() => null);
+        if (content !== null) this.files.set(entry.fullPath, { relDir: entry.relDir, content });
+      }
+      await this.reloadExclude();
+    }
+
+    async reload(fullPath) {
+      if (fullPath === this.excludePath) {
+        await this.reloadExclude();
+        return;
+      }
+      const content = await fs.readFile(fullPath, 'utf8').catch(() => null);
+      if (content === null) {
+        this.files.delete(fullPath);
+      } else {
+        const relDir = path.relative(this.pathToWatch, path.dirname(fullPath));
+        this.files.set(fullPath, { relDir, content });
+      }
+      this.rebuild();
+    }
+
+    async reloadExclude() {
+      this.excludeContent = await fs.readFile(this.excludePath, 'utf8').catch(() => '');
+      this.rebuild();
+    }
+
+    rebuild() {
+      const out = ignore();
+      for (const { relDir, content } of this.files.values()) {
+        for (let line of content.split('\n')) {
+          line = line.trim();
+          if (!line || line.startsWith('#')) continue;
+          let isNegative = false;
+          if (line.startsWith('!')) {
+            isNegative = true;
+            line = line.slice(1);
+          }
+          if (line.startsWith('/')) line = line.slice(1);
+          const rule = relDir ? `${relDir}/${line}` : line;
+          out.add(isNegative ? `!${rule}` : rule);
+        }
+      }
+      for (let line of this.excludeContent.split('\n')) {
+        line = line.trim();
+        if (!line || line.startsWith('#')) continue;
+        out.add(line);
+      }
+      this.matcher = out;
+    }
+  }
+  exports._GitIgnoreIndex = GitIgnoreIndex;
+
   const readIgnore = async (pathToWatch, repoPath) => {
     logger.debug(`Parsing .gitignore for ${pathToWatch}`);
     const out = ignore();
@@ -320,30 +386,26 @@ exports.registerApi = (env) => {
     }
 
     if (isRepo) {
-      let gitIgnore = await readIgnore(pathToWatch, repoPath);
+      const ignoreIndex = new GitIgnoreIndex(pathToWatch, repoPath);
+      await ignoreIndex.load();
+      let gitIgnore = ignoreIndex.matcher;
       await watcher.addWorkdir(pathToWatch, (watch_path) => {
-        const ignore = true,
-          watch = false;
         const filePath = path.relative(pathToWatch, watch_path);
-        if (!filePath) return watch; // root
+        if (!filePath) return false; // root
         if (filePath === '.gitignore' || filePath.endsWith(path.sep + '.gitignore')) {
-          readIgnore(pathToWatch, repoPath).then(
-            (ign) => (gitIgnore = ign),
+          ignoreIndex.reload(watch_path).then(
+            () => (gitIgnore = ignoreIndex.matcher),
             (err) => logger.error('Could not parse .gitignore for', pathToWatch, err)
           );
         }
         // We monitor the repo separately
-        if (filePath === '.git' || filePath.startsWith('.git' + path.sep)) return ignore;
+        if (filePath === '.git' || filePath.startsWith('.git' + path.sep)) return true;
         const parts = filePath.split(path.sep);
-        if (parts.some((part) => defaultIgnoredDirNames.has(part))) {
-          return ignore;
-        }
+        if (parts.some((part) => defaultIgnoredDirNames.has(part))) return true;
         // We add / to test for directories, we can't have a file named like a directory
         // and otherwise directory `foo` won't match ignore `foo/`
-        if (gitIgnore.ignores(filePath) || gitIgnore.ignores(`${filePath}/`)) {
-          return ignore;
-        }
-        return watch;
+        if (gitIgnore.ignores(filePath) || gitIgnore.ignores(`${filePath}/`)) return true;
+        return false;
       });
     }
 

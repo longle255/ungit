@@ -83,4 +83,22 @@ describe('git-api watcher', function () {
     expect(ig.ignores('subpackage/test.subtmp')).to.be(true);
     expect(ig.ignores('subpackage/valid-file.txt')).to.be(false);
   });
+
+  it('reloads a nested ignore file without walking the tree', async () => {
+    let finds = 0;
+    await fs.promises.mkdir(path.join(testDir, 'subpackage'), { recursive: true });
+    const index = new restGit._GitIgnoreIndex(testDir, path.join(testDir, '.git'), async () => {
+      finds += 1;
+      return [{ relDir: 'subpackage', fullPath: path.join(testDir, 'subpackage', '.gitignore') }];
+    });
+    await index.load();
+    const afterLoad = finds;
+    await fs.promises.writeFile(
+      path.join(testDir, 'subpackage', '.gitignore'),
+      'ignored-sub/\n*.newsubtmp\n'
+    );
+    await index.reload(path.join(testDir, 'subpackage', '.gitignore'));
+    expect(finds).to.be(afterLoad);
+    expect(index.matcher.ignores('subpackage/new.newsubtmp')).to.be(true);
+  });
 });
