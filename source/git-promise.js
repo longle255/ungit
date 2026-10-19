@@ -274,87 +274,107 @@ const getGitError = (args, stderr, stdout) => {
   return err;
 };
 
-git.status = (repoPath, file) => {
-  return Promise.all([
-    // 0: numStatsStaged
-    git([gitOptionalLocks, 'diff', '--numstat', '--cached', '-z', '--', file || ''], repoPath).then(
-      gitParser.parseGitStatusNumstat
-    ),
-    // 1: numStatsUnstaged
-    config.isEnableNumStat
-      ? git([gitOptionalLocks, 'diff', '--numstat', '-z', '--', file || ''], repoPath).then(
-          gitParser.parseGitStatusNumstat
-        )
-      : {},
-    // 2: status
-    git([gitOptionalLocks, 'status', '-s', '-b', '-u', '-z', file || ''], repoPath)
-      .then(gitParser.parseGitStatus)
-      .then((status) => {
-        return Promise.all([
-          // 0: isRebaseMerge
-          fs
-            .access(path.join(repoPath, '.git', 'rebase-merge'))
-            .then(() => true)
-            .catch(() => false),
-          // 1: isRebaseApply
-          fs
-            .access(path.join(repoPath, '.git', 'rebase-apply'))
-            .then(() => true)
-            .catch(() => false),
-          // 2: isMerge
-          fs
-            .access(path.join(repoPath, '.git', 'MERGE_HEAD'))
-            .then(() => true)
-            .catch(() => false),
-          // 3: inCherry
-          fs
-            .access(path.join(repoPath, '.git', 'CHERRY_PICK_HEAD'))
-            .then(() => true)
-            .catch(() => false),
-        ])
-          .then((result) => {
-            status.inRebase = result[0] || result[1];
-            status.inMerge = result[2];
-            status.inCherry = result[3];
-          })
-          .then(() => {
-            if (status.inMerge || status.inCherry) {
-              return fs
-                .readFile(path.join(repoPath, '.git', 'MERGE_MSG'), { encoding: 'utf8' })
-                .then((commitMessage) => {
-                  status.commitMessage = commitMessage;
-                  return status;
-                })
-                .catch(() => {
-                  // 'MERGE_MSG' file is gone away, which means we are no longer in merge state
-                  // and state changed while this call is being made.
-                  status.inMerge = status.inCherry = false;
-                  return status;
-                });
-            }
-            return status;
-          });
-      }),
-  ]).then((result) => {
-    const numstats = [result[0], result[1]].reduce(Object.assign, {});
-    const status = result[2];
-    status.inConflict = false;
+git.status = (repoPath, file, options = {}) => {
+  const { offset = 0, limit = null, includeStats = true } = options;
 
-    // merge numstats
-    Object.keys(status.files).forEach((filename) => {
-      // git diff returns paths relative to git repo but git status does not
-      const absoluteFilename = filename.replace(/\.\.\//g, '');
-      const stats = numstats[absoluteFilename] || { additions: '-', deletions: '-' };
-      const fileObj = status.files[filename];
-      fileObj.additions = stats.additions;
-      fileObj.deletions = stats.deletions;
-      if (!status.inConflict && fileObj.conflict) {
-        status.inConflict = true;
+  return git([gitOptionalLocks, 'status', '-s', '-b', '-u', '-z', file || ''], repoPath)
+    .then((rawStatus) => ({ status: gitParser.parseGitStatus(rawStatus) }))
+    .then(async ({ status }) => {
+      const allFiles = status.files;
+      const names = Object.keys(allFiles).sort();
+      const total = names.length;
+      const pageNames = limit == null ? names : names.slice(offset, offset + limit);
+      const pageFiles = {};
+      for (const name of pageNames) pageFiles[name] = allFiles[name];
+      status.files = pageFiles;
+      status.total = total;
+      status.offset = offset;
+      status.limit = limit == null ? total : limit;
+      status.hasMore = offset + pageNames.length < total;
+
+      const hasTracked = pageNames.some((name) => {
+        const fileObj = allFiles[name];
+        return (
+          fileObj.staged || fileObj.removed || fileObj.conflict || fileObj.renamed || !fileObj.isNew
+        );
+      });
+
+      if (includeStats && pageNames.length > 0 && hasTracked) {
+        const paths = new Set();
+        for (const name of pageNames) {
+          paths.add(name);
+          const oldName = allFiles[name].oldFileName;
+          if (oldName && oldName !== name) paths.add(oldName);
+        }
+        const pathArgs = limit == null ? ['--', file || ''] : ['--', ...paths];
+
+        const numstats = await Promise.all([
+          git(
+            [gitOptionalLocks, 'diff', '--numstat', '--cached', '-z', ...pathArgs],
+            repoPath
+          ).then(gitParser.parseGitStatusNumstat),
+          config.isEnableNumStat
+            ? git([gitOptionalLocks, 'diff', '--numstat', '-z', ...pathArgs], repoPath).then(
+                gitParser.parseGitStatusNumstat
+              )
+            : {},
+        ]);
+        const merged = numstats.reduce(Object.assign, {});
+        for (const name of pageNames) {
+          const fileObj = status.files[name];
+          const absoluteName = name.replace(/\.\.\//g, '');
+          const stats = merged[absoluteName] || { additions: '-', deletions: '-' };
+          fileObj.additions = stats.additions;
+          fileObj.deletions = stats.deletions;
+        }
+      } else {
+        for (const name of pageNames) {
+          status.files[name].additions = '-';
+          status.files[name].deletions = '-';
+        }
       }
-    });
 
-    return status;
-  });
+      const stateChecks = await Promise.all([
+        // 0: isRebaseMerge
+        fs
+          .access(path.join(repoPath, '.git', 'rebase-merge'))
+          .then(() => true)
+          .catch(() => false),
+        // 1: isRebaseApply
+        fs
+          .access(path.join(repoPath, '.git', 'rebase-apply'))
+          .then(() => true)
+          .catch(() => false),
+        // 2: isMerge
+        fs
+          .access(path.join(repoPath, '.git', 'MERGE_HEAD'))
+          .then(() => true)
+          .catch(() => false),
+        // 3: inCherry
+        fs
+          .access(path.join(repoPath, '.git', 'CHERRY_PICK_HEAD'))
+          .then(() => true)
+          .catch(() => false),
+      ]);
+      status.inRebase = stateChecks[0] || stateChecks[1];
+      status.inMerge = stateChecks[2];
+      status.inCherry = stateChecks[3];
+
+      if (status.inMerge || status.inCherry) {
+        try {
+          status.commitMessage = await fs.readFile(path.join(repoPath, '.git', 'MERGE_MSG'), {
+            encoding: 'utf8',
+          });
+        } catch {
+          // 'MERGE_MSG' file is gone away, which means we are no longer in merge state
+          // and state changed while this call is being made.
+          status.inMerge = status.inCherry = false;
+        }
+      }
+
+      status.inConflict = Object.values(allFiles).some((fileObj) => fileObj.conflict);
+      return status;
+    });
 };
 
 git.getRemoteAddress = (repoPath, remoteName) => {
@@ -443,7 +463,9 @@ git.diffFile = (repoPath, filename, oldFilename, sha1, ignoreWhiteSpace) => {
   return git
     .revParse(repoPath)
     .then((revParse) => {
-      return revParse.type === 'bare' ? { files: {} } : git.status(repoPath);
+      return revParse.type === 'bare'
+        ? { files: {} }
+        : git.status(repoPath, filename, { includeStats: false });
     }) // if bare do not call status
     .then((status) => {
       const file = status.files[filename];
@@ -458,7 +480,12 @@ git.diffFile = (repoPath, filename, oldFilename, sha1, ignoreWhiteSpace) => {
           });
         // If the file is new or if it's a directory, i.e. a submodule
       } else {
-        if (file && file.isNew) {
+        if (file && oldFilename && oldFilename !== filename) {
+          return git(
+            ['diff', ignoreWhiteSpace ? '-w' : '', `HEAD:${oldFilename.trim()}`, filename.trim()],
+            repoPath
+          );
+        } else if (file && file.isNew) {
           return git(
             ['diff', '--no-index', isWindows ? 'NUL' : '/dev/null', filename.trim()],
             repoPath,
@@ -578,7 +605,7 @@ git.commit = (repoPath, amend, emptyCommit, message, files, operation, timeout) 
     resolve();
   })
     .then(() => {
-      return git.status(repoPath);
+      return git.status(repoPath, null, { includeStats: false });
     })
     .then((status) => {
       const toAdd = [];

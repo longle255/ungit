@@ -235,4 +235,15 @@ describe('git-api diff', () => {
         return common.get(req, '/diff', { path: testDir, sha1: commit.sha1, file: testFile });
       });
   });
+
+  it('classifies a file without full-tree stats', async () => {
+    const dir = await common.initRepo(req);
+    await common.post(req, '/testing/createfile', {
+      path: dir,
+      file: path.join(dir, 'one.txt'),
+    });
+    await common.post(req, '/testing/git', { path: dir, command: ['add', 'one.txt'] });
+    const diff = await common.get(req, '/diff', { path: dir, file: 'one.txt' });
+    expect(diff).to.be.a('string');
+  });
 });

@@ -211,7 +211,9 @@ exports.registerApi = (env) => {
           });
         }
       }
-    } catch (e) {}
+    } catch {
+      /* ignore */
+    }
     return results;
   };
 
@@ -238,7 +240,9 @@ exports.registerApi = (env) => {
           const rule = relDir ? `${relDir}/${line}` : line;
           out.add(isNegative ? `!${rule}` : rule);
         }
-      } catch (e) {}
+      } catch {
+        /* ignore */
+      }
     }
 
     if (repoPath) {
@@ -250,7 +254,9 @@ exports.registerApi = (env) => {
           if (!line || line.startsWith('#')) continue;
           out.add(line);
         }
-      } catch (e) {}
+      } catch {
+        /* ignore */
+      }
     }
 
     return out;
@@ -278,7 +284,9 @@ exports.registerApi = (env) => {
             repoPath = path.resolve(pathToWatch, match[1].trim());
             isRepo = true;
           }
-        } catch (e) {}
+        } catch {
+          /* ignore */
+        }
       }
     }
 
@@ -527,7 +535,38 @@ exports.registerApi = (env) => {
   };
 
   app.get(`${exports.pathPrefix}/status`, ensureAuthenticated, ensurePathExists, (req, res) => {
-    jsonResultOrFailProm(res, gitPromise.status(req.query.path, null));
+    let limit = null;
+    let offset;
+    try {
+      if (req.query.limit !== undefined) limit = getNumber(req.query.limit, 0);
+      else if (req.query.fileLimit !== undefined) limit = getNumber(req.query.fileLimit, 0);
+      offset = getNumber(req.query.offset, 0);
+    } catch (err) {
+      return res.status(400).json({
+        error: err.error || err.message || 'invalid number',
+        errorCode: 'invalid-paging',
+      });
+    }
+    if (limit !== null && (limit < 1 || limit > 500)) {
+      return res.status(400).json({
+        error: 'limit must be between 1 and 500',
+        errorCode: 'invalid-limit',
+      });
+    }
+    if (offset < 0) {
+      return res.status(400).json({
+        error: 'offset must be zero or greater',
+        errorCode: 'invalid-offset',
+      });
+    }
+    jsonResultOrFailProm(
+      res,
+      gitPromise.status(req.query.path, null, {
+        offset,
+        limit,
+        includeStats: req.query.includeStats !== 'false',
+      })
+    );
   });
 
   app.post(`${exports.pathPrefix}/init`, ensureAuthenticated, ensurePathExists, (req, res) => {

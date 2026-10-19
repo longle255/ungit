@@ -501,3 +501,135 @@ describe('git-api', () => {
     }
   });
 });
+
+describe('status pagination', () => {
+  let dir;
+
+  before(async () => {
+    dir = await common.initRepo(req);
+    for (let i = 0; i < 120; i += 1) {
+      await common.post(req, '/testing/createfile', {
+        path: dir,
+        file: path.join(dir, `page-${String(i).padStart(3, '0')}.txt`),
+      });
+    }
+  });
+
+  after(() => common.post(req, '/testing/cleanup'));
+
+  it('returns exact totals and disjoint pages', async () => {
+    const first = await common.get(req, '/status', { path: dir, offset: 0, limit: 50 });
+    const second = await common.get(req, '/status', { path: dir, offset: 50, limit: 50 });
+    const third = await common.get(req, '/status', { path: dir, offset: 100, limit: 50 });
+
+    expect(first.total).to.be(120);
+    expect(Object.keys(first.files)).to.have.length(50);
+    expect(first.hasMore).to.be(true);
+    expect(Object.keys(second.files)).to.have.length(50);
+    expect(third.hasMore).to.be(false);
+    expect(Object.keys(third.files)).to.have.length(20);
+
+    const all = [first, second, third].flatMap((page) => Object.keys(page.files));
+    expect(new Set(all).size).to.be(120);
+  });
+
+  it('skips stats when includeStats=false', async () => {
+    const body = await common.get(req, '/status', {
+      path: dir,
+      offset: 0,
+      limit: 5,
+      includeStats: 'false',
+    });
+    Object.values(body.files).forEach((file) => {
+      expect(file.additions).to.be('-');
+      expect(file.deletions).to.be('-');
+    });
+  });
+
+  it('accepts fileLimit as an alias', async () => {
+    const body = await common.get(req, '/status', { path: dir, fileLimit: 10 });
+    expect(Object.keys(body.files)).to.have.length(10);
+    expect(body.limit).to.be(10);
+  });
+
+  it('rejects malformed paging as JSON 400', async () => {
+    const negative = await req.get('/status').query({ path: dir, offset: -1 });
+    expect(negative.status).to.be(400);
+    expect(negative.body.errorCode).to.be('invalid-offset');
+    const malformed = await req.get('/status').query({ path: dir, limit: 'abc' });
+    expect(malformed.status).to.be(400);
+    expect(malformed.body.errorCode).to.be('invalid-paging');
+  });
+});
+
+describe('status pagination mixed statuses', () => {
+  let dir;
+
+  before(async () => {
+    dir = await common.initRepo(req);
+    const baseFiles = [
+      'base-deleted.txt',
+      'base-renamed.txt',
+      'conflict.txt',
+      'staged.txt',
+      'unstaged.txt',
+    ];
+    for (const file of baseFiles) {
+      await common.post(req, '/testing/createfile', { path: dir, file: path.join(dir, file) });
+    }
+    await common.post(req, '/commit', {
+      path: dir,
+      message: 'base',
+      files: baseFiles.map((name) => ({ name })),
+    });
+    await common.post(req, '/testing/git', {
+      path: dir,
+      command: ['checkout', '-b', 'other'],
+    });
+    await fs.writeFile(path.join(dir, 'conflict.txt'), 'other side\n');
+    await common.post(req, '/testing/git', { path: dir, command: ['add', 'conflict.txt'] });
+    await common.post(req, '/testing/git', {
+      path: dir,
+      command: ['commit', '-m', 'other side'],
+    });
+    await common.post(req, '/testing/git', {
+      path: dir,
+      command: ['checkout', 'master'],
+    });
+    await fs.writeFile(path.join(dir, 'conflict.txt'), 'master side\n');
+    await common.post(req, '/testing/git', { path: dir, command: ['add', 'conflict.txt'] });
+    await common.post(req, '/testing/git', {
+      path: dir,
+      command: ['commit', '-m', 'master side'],
+    });
+    await common.post(req, '/testing/git', { path: dir, command: ['merge', 'other'] });
+    await fs.writeFile(path.join(dir, 'staged.txt'), 'staged change\n');
+    await common.post(req, '/testing/git', { path: dir, command: ['add', 'staged.txt'] });
+    await fs.writeFile(path.join(dir, 'unstaged.txt'), 'unstaged change\n');
+    await common.post(req, '/testing/git', {
+      path: dir,
+      command: ['mv', 'base-renamed.txt', 'renamed.txt'],
+    });
+    await fs.unlink(path.join(dir, 'base-deleted.txt'));
+    await fs.writeFile(path.join(dir, 'untracked.txt'), 'new file\n');
+  });
+
+  after(() => common.post(req, '/testing/cleanup'));
+
+  it('pages staged, unstaged, untracked, renamed, deleted, and conflict entries', async () => {
+    const first = await common.get(req, '/status', { path: dir, offset: 0, limit: 3 });
+    const second = await common.get(req, '/status', { path: dir, offset: 3, limit: 3 });
+    expect(first.total).to.be(6);
+    expect(Object.keys(first.files)).to.have.length(3);
+    expect(Object.keys(second.files)).to.have.length(3);
+    expect(new Set(Object.keys(first.files).concat(Object.keys(second.files))).size).to.be(6);
+
+    expect(first.files['base-deleted.txt'].removed).to.be(true);
+    expect(first.files['conflict.txt'].conflict).to.be(true);
+    expect(first.files['renamed.txt'].renamed).to.be(true);
+    expect(first.files['renamed.txt'].oldFileName).to.be('base-renamed.txt');
+    expect(first.files['base-deleted.txt'].additions).to.not.be('-');
+    expect(second.files['untracked.txt'].additions).to.be('-');
+    expect(second.files['staged.txt'].additions).to.not.be('-');
+  });
+});
