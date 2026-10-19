@@ -512,14 +512,17 @@ class FileViewModel {
         // if not new file
         // and if not merging
         // and if not rebasing
-        // and if not selecting the whole repository
         // and if text file
+        // and if the diff is loaded and not too large
+        // and if not selecting the whole repository
         // and if diff is showing, display patch button
-        !staging.selectAllFiles() &&
         !this.isNew() &&
         !staging.inMerge() &&
         !staging.inRebase() &&
         this.fileType() === 'text' &&
+        this.diff() &&
+        !this.diff().diffTooLarge() &&
+        !staging.selectAllFiles() &&
         this.isShowingDiffs()
     );
     this.mergeTool = ko.computed(() => this.conflict() && mergeTool !== false);

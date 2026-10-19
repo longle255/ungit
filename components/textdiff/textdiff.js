@@ -76,6 +76,9 @@ class TextDiffViewModel {
     this.numberOfSelectedPatchLines = 0;
     this.htmlSrc = undefined;
     this.isParsed = ko.observable(false);
+    this.diffTooLarge = ko.observable(false);
+    this.diffSize = ko.observable(0);
+    this.diffLimit = ko.observable(0);
 
     this.isShowingDiffs.subscribe((newValue) => {
       if (newValue) this.render();
@@ -96,24 +99,27 @@ class TextDiffViewModel {
     ko.renderTemplate('textdiff', this, {}, parentElement);
   }
 
-  getDiffArguments() {
+  getDiffArguments(force) {
     return {
       file: this.filename,
       oldFile: this.oldFilename,
       path: this.repoPath(),
       sha1: this.sha1 ? this.sha1 : '',
       whiteSpace: this.whiteSpace.value(),
+      force: force ? true : undefined,
     };
   }
 
   invalidateDiff() {
     this.diffJson = null;
+    this.diffTooLarge(false);
     if (this.isShowingDiffs()) this.render();
   }
 
-  getDiffJson() {
+  getDiffJson(force = false) {
+    this.diffTooLarge(false);
     return this.server
-      .getPromise('/diff', this.getDiffArguments())
+      .getPromise('/diff', this.getDiffArguments(force))
       .then((diffs) => {
         if (typeof diffs !== 'string') {
           // Invalid value means there is no changes, show dummy diff without any changes
@@ -125,6 +131,14 @@ class TextDiffViewModel {
         this.diffJson = diff2html.parse(diffs);
       })
       .catch((err) => {
+        if (err.errorCode === 'diff-too-large') {
+          const body = (err.res && err.res.body) || err;
+          this.diffJson = null;
+          this.diffSize(body.size || 0);
+          this.diffLimit(body.limit || 0);
+          this.diffTooLarge(true);
+          return;
+        }
         // The file existed before but has been removed, but we're trying to get a diff for it
         // Most likely it will just disappear with the next refresh of the staging area
         // so we just ignore the error here
@@ -136,7 +150,13 @@ class TextDiffViewModel {
       });
   }
 
+  loadFullDiff() {
+    this.diffTooLarge(false);
+    return this.getDiffJson(true).then(() => this.render());
+  }
+
   render() {
+    if (this.diffTooLarge()) return Promise.resolve();
     return (!this.diffJson ? this.getDiffJson() : Promise.resolve()).then(() => {
       if (!this.diffJson || this.diffJson.length == 0) return;
 

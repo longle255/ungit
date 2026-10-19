@@ -1,6 +1,7 @@
 const expect = require('expect.js');
 const request = require('supertest');
 const express = require('express');
+const fs = require('fs').promises;
 const path = require('path');
 const restGit = require('../source/git-api');
 const common = require('./common-es6.js');
@@ -245,5 +246,22 @@ describe('git-api diff', () => {
     await common.post(req, '/testing/git', { path: dir, command: ['add', 'one.txt'] });
     const diff = await common.get(req, '/diff', { path: dir, file: 'one.txt' });
     expect(diff).to.be.a('string');
+  });
+
+  it('returns a bounded error for a large diff', async () => {
+    const dir = await common.initRepo(req);
+    const large = path.join(dir, 'large.txt');
+    await common.post(req, '/testing/createfile', { path: dir, file: large, content: 'base\n' });
+    await common.post(req, '/testing/git', { path: dir, command: ['add', 'large.txt'] });
+    await common.post(req, '/commit', {
+      path: dir,
+      message: 'large base',
+      files: [{ name: 'large.txt' }],
+    });
+    await fs.writeFile(large, 'x'.repeat(2 * 1024 * 1024 + 1));
+    const body = await common.get(req, '/diff', { path: dir, file: 'large.txt' });
+    expect(body.errorCode).to.be('diff-too-large');
+    const forced = await common.get(req, '/diff', { path: dir, file: 'large.txt', force: 'true' });
+    expect(forced).to.be.a('string');
   });
 });

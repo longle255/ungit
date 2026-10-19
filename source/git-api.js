@@ -12,6 +12,7 @@ const fsSync = require('fs');
 const chokidar = require('chokidar');
 const ignore = require('ignore');
 const { EventEmitter } = require('events');
+const { getDiffLimitError } = require('./diff-limits');
 
 const tenMinTimeoutMs = 10 * 60 * 1000;
 
@@ -695,13 +696,23 @@ exports.registerApi = (env) => {
     const isIgnoreWhiteSpace = req.query.whiteSpace === 'true' ? true : false;
     jsonResultOrFailProm(
       res,
-      gitPromise.diffFile(
-        req.query.path,
-        req.query.file,
-        req.query.oldFile,
-        req.query.sha1,
-        isIgnoreWhiteSpace
-      )
+      gitPromise
+        .diffFile(
+          req.query.path,
+          req.query.file,
+          req.query.oldFile,
+          req.query.sha1,
+          isIgnoreWhiteSpace
+        )
+        .then((diff) => {
+          const error = getDiffLimitError(diff, {
+            maxBytes: config.maxDiffBytes,
+            maxLines: config.maxDiffLines,
+            force: req.query.force === 'true',
+          });
+          if (error) throw error;
+          return diff;
+        })
     );
   });
 

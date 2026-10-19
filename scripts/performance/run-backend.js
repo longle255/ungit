@@ -73,7 +73,7 @@ async function main() {
       )
     );
     results.push(
-      await timed('diff-large', () =>
+      await timed('diff-bounded', () =>
         req.get(`${prefix}/diff`).query({ path: fixture.repoPath, file: 'large-diff.txt' })
       )
     );

@@ -137,6 +137,12 @@ const defaultConfig = {
   // number of nodes to load for each git.log call
   numberOfNodesPerLoad: 25,
 
+  // maximum size of a single file diff returned by /diff, in bytes
+  maxDiffBytes: 2 * 1024 * 1024,
+
+  // maximum number of lines in a single file diff returned by /diff
+  maxDiffLines: 20000,
+
   // Specifies a custom git merge tool to use when resolving conflicts. Your git configuration must be set up to use this!
   // A true value will use the default tool while a string value will use the tool of that specified name.
   mergeTool: false,
@@ -299,6 +305,10 @@ const argv = yargs
     'Max search iterations for active branch.  (-1 means not searching for active branch)'
   )
   .describe('numberOfNodesPerLoad', 'number of nodes to load for each git.log call')
+  .describe('maxDiffBytes', 'Maximum bytes for a single file diff returned by /diff')
+  .number('maxDiffBytes')
+  .describe('maxDiffLines', 'Maximum lines for a single file diff returned by /diff')
+  .number('maxDiffLines')
   .describe('mergeTool', 'the git merge tool to use when resolving conflicts')
   .describe(
     'diffType',
