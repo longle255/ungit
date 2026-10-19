@@ -1,4 +1,5 @@
 const child_process = require('child_process');
+const gitMetrics = require('./git-metrics');
 const gitParser = require('./git-parser');
 const path = require('path');
 const config = require('./config');
@@ -50,8 +51,24 @@ pLimitPromise.then((limit) => {
 
 const gitExecutorProm = (args, retryCount) => {
   let timeoutTimer;
+  gitMetrics.start();
+  const queuedAt = Date.now();
+  let spawnedAt = 0;
+
   return pLimit(() => {
+    spawnedAt = Date.now();
+    gitMetrics.spawned(spawnedAt - queuedAt);
     return new Promise((resolve, reject) => {
+      let metricFinished = false;
+      const finishMetrics = () => {
+        if (metricFinished) return;
+        metricFinished = true;
+        gitMetrics.finished({
+          durationMs: Date.now() - spawnedAt,
+          stdoutBytes: Buffer.byteLength(stdout),
+          stderrBytes: Buffer.byteLength(stderr),
+        });
+      };
       if (config.logGitCommands)
         logger.info(`git executing: ${args.repoPath} ${args.commands.join(' ')}`);
       let rejectedError = null;
@@ -96,9 +113,13 @@ const gitExecutorProm = (args, retryCount) => {
         stderr += text;
         emitOperationEvent('git-operation-output', { stream: 'stderr', text: text });
       });
-      gitProcess.on('error', (error) => (rejectedError = error));
+      gitProcess.on('error', (error) => {
+        rejectedError = error;
+        finishMetrics();
+      });
 
       gitProcess.on('close', (code) => {
+        finishMetrics();
         emitOperationEvent('git-operation-step', { code: code });
         if (config.logGitCommands)
           logger.info(
