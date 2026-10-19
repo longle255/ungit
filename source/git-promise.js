@@ -1,4 +1,5 @@
 const child_process = require('child_process');
+const crypto = require('crypto');
 const gitMetrics = require('./git-metrics');
 const gitParser = require('./git-parser');
 const path = require('path');
@@ -27,6 +28,12 @@ const gitBin = (() => {
   }
   return 'git';
 })();
+
+const revisionOf = (...parts) =>
+  crypto
+    .createHash('sha1')
+    .update(parts.map((part) => String(part || '')).join('\0'))
+    .digest('hex');
 
 const isRetryableError = (err) => {
   const errMsg = (err || {}).error || '';
@@ -373,6 +380,7 @@ git.status = (repoPath, file, options = {}) => {
       }
 
       status.inConflict = Object.values(allFiles).some((fileObj) => fileObj.conflict);
+      status.revision = revisionOf(JSON.stringify(status), String(offset), String(limit));
       return status;
     });
 };
@@ -749,10 +757,27 @@ git.log = (path, limit, skip, maxActiveBranchSearchIteration) => {
               skip: skip + (innerLog.isHeadExist ? 0 : config.numberOfNodesPerLoad),
               nodes: log.concat(innerLog.nodes),
               isHeadExist: innerLog.isHeadExist,
+              revision: revisionOf(
+                JSON.stringify(log),
+                innerLog.revision,
+                String(limit),
+                String(skip)
+              ),
             };
           });
       } else {
-        return { limit: limit, skip: skip, nodes: log, isHeadExist: log.isHeadExist };
+        return {
+          limit: limit,
+          skip: skip,
+          nodes: log,
+          isHeadExist: log.isHeadExist,
+          revision: revisionOf(
+            JSON.stringify(log),
+            String(log.isHeadExist),
+            String(limit),
+            String(skip)
+          ),
+        };
       }
     });
 };

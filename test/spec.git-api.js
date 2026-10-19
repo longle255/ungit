@@ -719,3 +719,24 @@ describe('gitlog pagination', () => {
     expect(new Set(allShas).size).to.be(60);
   });
 });
+
+describe('payload revisions', () => {
+  let dir;
+
+  before(async () => {
+    dir = await common.initRepo(req);
+    await common.post(req, '/testing/createfile', { path: dir, file: path.join(dir, 'one.txt') });
+    await common.post(req, '/testing/createfile', { path: dir, file: path.join(dir, 'two.txt') });
+  });
+
+  after(() => common.post(req, '/testing/cleanup'));
+
+  it('is stable for unchanged status and changes when the page changes', async () => {
+    const first = await common.get(req, '/status', { path: dir, limit: 1, offset: 0 });
+    const again = await common.get(req, '/status', { path: dir, limit: 1, offset: 0 });
+    const second = await common.get(req, '/status', { path: dir, limit: 1, offset: 1 });
+    expect(first.revision).to.be.ok();
+    expect(again.revision).to.be(first.revision);
+    expect(second.revision).to.not.be(first.revision);
+  });
+});

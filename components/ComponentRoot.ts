@@ -1,4 +1,6 @@
 declare var ungit: any;
+declare var require: any;
+const { payloadKey } = require('./payload-key');
 
 export class ComponentRoot {
   _apiCache: string | undefined;
@@ -11,7 +13,7 @@ export class ComponentRoot {
   constructor() { }
 
   isSamePayload(value: any) {
-    const jsonString = JSON.stringify(value);
+    const jsonString = payloadKey(value);
 
     if (this._apiCache === jsonString) {
       ungit.logger.debug(`ignoring redraw for same ${this.constructor.name} payload.`);
