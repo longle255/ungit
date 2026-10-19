@@ -58,4 +58,35 @@ describe('performance harness', function () {
     expect(snapshot.commands).to.be(1);
     expect(snapshot.stdoutBytes).to.be.greaterThan(0);
   });
+
+  it('does not run work before the limiter is ready', async () => {
+    let release;
+    let ran = false;
+    const ready = new Promise((resolve) => {
+      release = resolve;
+    });
+    const pending = git._runLimitedWith(ready, () => {
+      ran = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(ran).to.be(false);
+    release((fn) => Promise.resolve(fn()));
+    await pending;
+    expect(ran).to.be(true);
+  });
+
+  it('never exceeds the configured active count', async () => {
+    fixture = await createPerformanceRepo({
+      commits: 2,
+      stagedFiles: 0,
+      unstagedFiles: 0,
+      untrackedFiles: 0,
+    });
+    metrics.reset();
+    await Promise.all(
+      Array.from({ length: 20 }, () => git(['rev-parse', 'HEAD'], fixture.repoPath))
+    );
+    const config = require('../source/config');
+    expect(metrics.snapshot().maxActive).to.be.lessThan(config.maxConcurrentGitOperations + 1);
+  });
 });

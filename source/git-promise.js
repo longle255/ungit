@@ -45,16 +45,11 @@ const isRetryableError = (err) => {
   return false;
 };
 
-let pLimit = (fn) => {
-  try {
-    return Promise.resolve(fn());
-  } catch (err) {
-    return Promise.reject(err);
-  }
-};
-pLimitPromise.then((limit) => {
-  pLimit = limit.default(config.maxConcurrentGitOperations);
-});
+const gitLimiter = pLimitPromise.then((limit) => limit.default(config.maxConcurrentGitOperations));
+
+const runLimitedWith = (ready, fn) => ready.then((limit) => limit(fn));
+
+const runLimited = (fn) => runLimitedWith(gitLimiter, fn);
 
 const gitExecutorProm = (args, retryCount) => {
   let timeoutTimer;
@@ -62,7 +57,7 @@ const gitExecutorProm = (args, retryCount) => {
   const queuedAt = Date.now();
   let spawnedAt = 0;
 
-  return pLimit(() => {
+  return runLimited(() => {
     spawnedAt = Date.now();
     gitMetrics.spawned(spawnedAt - queuedAt);
     return new Promise((resolve, reject) => {
@@ -212,6 +207,8 @@ const git = (commands, repoPath, allowError, outPipe, inPipe, timeout, operation
 
   return gitExecutorProm(args, config.lockConflictRetryCount);
 };
+
+git._runLimitedWith = runLimitedWith;
 
 const getGitError = (args, stderr, stdout) => {
   const err = {};
