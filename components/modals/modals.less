@@ -1,0 +1,65 @@
+.reflog-modal {
+  .reflog-list {
+    max-height: 420px;
+    margin: 12px 0;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+  }
+
+  .reflog-entry {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid #eee;
+
+    &:last-child {
+      border-bottom: 0;
+    }
+
+    &:hover {
+      background: #f5f5f5;
+    }
+
+    &.selected {
+      background: #e8f0fe;
+    }
+  }
+
+  .reflog-date {
+    margin-right: 8px;
+    color: #777;
+  }
+
+  .reflog-action {
+    margin: 0 8px;
+    color: #555;
+  }
+
+  .reflog-subject {
+    font-weight: 600;
+  }
+
+  .reflog-author {
+    margin-left: 8px;
+    color: #777;
+  }
+
+  .reflog-selection {
+    margin-bottom: 12px;
+    text-align: left;
+
+    label {
+      display: block;
+    }
+
+    input {
+      width: 100%;
+    }
+  }
+}

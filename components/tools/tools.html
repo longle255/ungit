@@ -13,7 +13,12 @@
   </button>
   <ul class="dropdown-menu dropdown-menu-right tools-menu" role="menu">
     <li>
-      <a href="#" role="menuitem" data-bind="click: openReflog" data-ta-action="open-reflog">
+      <a
+        href="#"
+        role="menuitem"
+        data-bind="click: function(data, event) { return openReflog(event); }"
+        data-ta-action="open-reflog"
+      >
         Recover lost commit
       </a>
     </li>

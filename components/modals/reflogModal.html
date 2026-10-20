@@ -1,0 +1,94 @@
+<div
+  class="modal fade reflog-modal"
+  tabindex="-1"
+  role="dialog"
+  data-bind="attr: { 'data-ta-container': taModalName }"
+>
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-bind="click: close" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+        <h4 class="modal-title" data-bind="text: title"></h4>
+      </div>
+      <div class="modal-body">
+        <p>
+          Choose a commit from the HEAD reflog to restore onto a new branch. Recovering never moves
+          HEAD, resets the working tree, or rewrites history.
+        </p>
+        <input
+          type="search"
+          class="form-control"
+          placeholder="Filter by SHA, message, or author"
+          data-bind="value: filter, valueUpdate: 'afterkeydown'"
+          data-ta-reflog-filter
+        />
+        <div class="reflog-list" data-bind="foreach: filteredEntries">
+          <button
+            type="button"
+            class="reflog-entry"
+            data-bind="click: $parent.select.bind($parent, $data), css: { selected: $parent.selected() === $data }, attr: { 'data-ta-reflog-entry': sha1 }"
+          >
+            <span
+              class="reflog-date"
+              data-bind="text: $parent.entryDate($data), attr: { title: $parent.absoluteDate($data) }"
+            ></span>
+            <code data-bind="text: shortSha"></code>
+            <span class="reflog-action" data-bind="text: action"></span>
+            <span class="reflog-subject" data-bind="text: subject"></span>
+            <span class="reflog-author" data-bind="text: authorName"></span>
+          </button>
+        </div>
+        <div class="alert alert-info" data-bind="visible: isLoading() && entries().length === 0">
+          Loading reflog...
+        </div>
+        <div
+          class="alert alert-danger"
+          data-bind="visible: error, text: error"
+          data-ta-reflog-error
+        ></div>
+        <div
+          class="text-muted"
+          data-bind="visible: !isLoading() && !error() && entries().length === 0"
+        >
+          No reflog entries found.
+        </div>
+        <div
+          class="text-muted"
+          data-bind="visible: !isLoading() && entries().length > 0 && filteredEntries().length === 0"
+        >
+          No entries match the filter.
+        </div>
+        <button
+          type="button"
+          class="btn btn-default"
+          data-bind="visible: hasMore, click: loadMore, disable: isLoading"
+          data-ta-reflog-load-more
+        >
+          Load more
+        </button>
+      </div>
+      <div class="modal-footer">
+        <div class="reflog-selection" data-bind="visible: selected">
+          <label for="reflog-branch-name">Branch name</label>
+          <input
+            id="reflog-branch-name"
+            type="text"
+            class="form-control"
+            data-bind="value: branchName, valueUpdate: 'afterkeydown'"
+            data-ta-reflog-branch-name
+          />
+        </div>
+        <button
+          type="button"
+          class="btn btn-default"
+          data-bind="click: close"
+          data-ta-reflog-cancel
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

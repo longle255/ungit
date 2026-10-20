@@ -36,4 +36,33 @@ describe('[REFLOG]', () => {
     await environment.click('.tools .dropdown-toggle');
     await environment.waitForElementHidden('[data-ta-action="open-reflog"]');
   });
+
+  it('opens the reflog modal and lists the lost commit', async () => {
+    await environment.click('.tools .dropdown-toggle');
+    await environment.click('[data-ta-action="open-reflog"]');
+    await environment.waitForElementVisible('[data-ta-container="reflog-modal"]');
+    await environment.waitForElementVisible(`[data-ta-reflog-entry="${lostSha}"]`);
+  });
+
+  it('selects an entry and prefills a branch name', async () => {
+    await environment.click(`[data-ta-reflog-entry="${lostSha}"]`);
+    const branchName = await environment.page.$eval(
+      '[data-ta-reflog-branch-name]',
+      (element) => element.value
+    );
+    expect(branchName.startsWith('recovered/')).to.be(true);
+    expect(lostSha.startsWith(branchName.replace('recovered/', ''))).to.be(true);
+  });
+
+  it('filters entries', async () => {
+    await environment.insert('[data-ta-reflog-filter]', 'no-such-entry');
+    await environment.waitForElementHidden(`[data-ta-reflog-entry="${lostSha}"]`);
+    await environment.insert('[data-ta-reflog-filter]', 'two');
+    await environment.waitForElementVisible(`[data-ta-reflog-entry="${lostSha}"]`);
+  });
+
+  it('closes the reflog modal', async () => {
+    await environment.click('[data-ta-reflog-cancel]');
+    await environment.waitForElementHidden('[data-ta-container="reflog-modal"]');
+  });
 });
