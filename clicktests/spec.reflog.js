@@ -65,4 +65,54 @@ describe('[REFLOG]', () => {
     await environment.click('[data-ta-reflog-cancel]');
     await environment.waitForElementHidden('[data-ta-container="reflog-modal"]');
   });
+
+  it('recovers the lost commit on a new branch', async () => {
+    await environment.click('.tools .dropdown-toggle');
+    await environment.click('[data-ta-action="open-reflog"]');
+    await environment.waitForElementVisible('[data-ta-container="reflog-modal"]');
+    await environment.click(`[data-ta-reflog-entry="${lostSha}"]`);
+    const branchName = await environment.page.$eval(
+      '[data-ta-reflog-branch-name]',
+      (element) => element.value
+    );
+
+    const branchResponse = environment.setApiListener('/branches', 'POST');
+    await environment.click('[data-ta-reflog-recover]');
+    await branchResponse;
+    await environment.ensureRedraw();
+
+    expect(git(testRepoPaths[0], ['rev-parse', branchName])).to.be(lostSha);
+    await environment.waitForElementVisible(`.ref.branch[data-ta-name="${branchName}"]`, 10000);
+  });
+
+  it('checks out the recovered branch when requested', async () => {
+    const checkoutBranch = 'recovered/checkout-test';
+    await environment.click('.tools .dropdown-toggle');
+    await environment.click('[data-ta-action="open-reflog"]');
+    await environment.waitForElementVisible('[data-ta-container="reflog-modal"]');
+    await environment.click(`[data-ta-reflog-entry="${lostSha}"]`);
+    await environment.insert('[data-ta-reflog-branch-name]', checkoutBranch);
+    await environment.click('[data-ta-reflog-checkout]');
+
+    const checkoutResponse = environment.setApiListener('/checkout', 'POST');
+    await environment.click('[data-ta-reflog-recover]');
+    await checkoutResponse;
+    await environment.ensureRedraw();
+
+    expect(git(testRepoPaths[0], ['rev-parse', '--abbrev-ref', 'HEAD'])).to.be(checkoutBranch);
+    expect(git(testRepoPaths[0], ['rev-parse', 'HEAD'])).to.be(lostSha);
+  });
+
+  it('keeps the modal open when the branch already exists', async () => {
+    await environment.click('.tools .dropdown-toggle');
+    await environment.click('[data-ta-action="open-reflog"]');
+    await environment.waitForElementVisible('[data-ta-container="reflog-modal"]');
+    await environment.click(`[data-ta-reflog-entry="${lostSha}"]`);
+
+    const branchResponse = environment.setApiListener('/branches', 'POST');
+    await environment.click('[data-ta-reflog-recover]');
+    await branchResponse;
+
+    await environment.waitForElementVisible('[data-ta-container="reflog-modal"]');
+  });
 });

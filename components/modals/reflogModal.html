@@ -79,7 +79,26 @@
             data-bind="value: branchName, valueUpdate: 'afterkeydown'"
             data-ta-reflog-branch-name
           />
+          <!-- ko if: canCheckout -->
+          <label class="checkbox-inline">
+            <input type="checkbox" data-bind="checked: checkout" data-ta-reflog-checkout />
+            Check out this branch
+          </label>
+          <!-- /ko -->
+          <!-- ko if: !canCheckout -->
+          <p class="help-block">
+            Bare repository: the commit will be recovered on a new branch without checkout.
+          </p>
+          <!-- /ko -->
         </div>
+        <button
+          type="button"
+          class="btn btn-primary"
+          data-bind="click: recover, enable: canRecover"
+          data-ta-reflog-recover
+        >
+          Recover
+        </button>
         <button
           type="button"
           class="btn btn-default"

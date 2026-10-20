@@ -17,6 +17,10 @@ class ReflogModalViewModel extends ModalViewModel {
   filteredEntries: ko.Computed<any[]>;
   selected: ko.Observable<any>;
   branchName: ko.Observable<string>;
+  checkout: ko.Observable<boolean>;
+  canCheckout: boolean;
+  isRecovering: ko.Observable<boolean>;
+  canRecover: ko.Computed<boolean>;
   isLoading: ko.Observable<boolean>;
   error: ko.Observable<string | null>;
   hasMore: ko.Observable<boolean>;
@@ -51,6 +55,16 @@ class ReflogModalViewModel extends ModalViewModel {
     });
     this.selected = ko.observable(null);
     this.branchName = ko.observable('');
+    this.checkout = ko.observable(false);
+    this.canCheckout = !this.isBareDir;
+    this.isRecovering = ko.observable(false);
+    this.canRecover = ko.computed(
+      () =>
+        Boolean(this.selected()) &&
+        this.branchName().trim().length > 0 &&
+        !this.branchName().trim().startsWith('-') &&
+        !this.isRecovering()
+    );
     this.isLoading = ko.observable(false);
     this.error = ko.observable(null);
     this.hasMore = ko.observable(false);
@@ -91,6 +105,34 @@ class ReflogModalViewModel extends ModalViewModel {
   select(entry: any) {
     this.selected(entry);
     this.branchName(`recovered/${entry.shortSha}`);
+  }
+
+  async recover() {
+    if (!this.canRecover()) return;
+    const entry = this.selected();
+    const name = this.branchName().trim();
+    this.error(null);
+    this.isRecovering(true);
+    try {
+      await this.server.postPromise('/branches', {
+        path: this.repoPath,
+        name,
+        sha1: entry.sha1,
+      });
+      if (this.canCheckout && this.checkout()) {
+        try {
+          await this.server.postPromise('/checkout', { path: this.repoPath, name });
+        } catch (e) {
+          this.server.unhandledRejection(e);
+        }
+      }
+      ungit.programEvents.dispatch({ event: 'branch-updated' });
+      this.close();
+    } catch (e) {
+      this.server.unhandledRejection(e);
+    } finally {
+      this.isRecovering(false);
+    }
   }
 
   entryDate(entry: any) {
