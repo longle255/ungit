@@ -249,8 +249,7 @@ exports.parseGitReflog = (text) => {
     .split('\n')
     .filter((line) => line.length > 0)
     .map((line) => {
-      const [sha1, shortSha, selector, action, subject, authorName, authorEmail] =
-        line.split('\0');
+      const [sha1, shortSha, selector, action, subject, authorName, authorEmail] = line.split('\0');
       const selectorMatch = /^(.*)@\{(.*)\}$/.exec(selector || '');
       return {
         sha1,
