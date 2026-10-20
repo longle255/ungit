@@ -195,4 +195,53 @@ describe('git-api branching', function () {
       .get(req, '/branches', { path: testDir })
       .then((res) => expect(res.length).to.be(1));
   });
+
+  it('rejects option-like branch names when creating', async () => {
+    const res = await req
+      .post(`${restGit.pathPrefix}/branches`)
+      .send({ path: testDir, name: '-f', sha1: 'HEAD' })
+      .expect(400);
+    expect(res.body.errorCode).to.be('invalid-ref-name');
+    const branches = await common.get(req, '/branches', { path: testDir });
+    expect(branches.some((branch) => branch.name === '-f')).to.be(false);
+  });
+
+  it('rejects option-like branch names when checking out', async () => {
+    const before = await common.get(req, '/checkout', { path: testDir });
+    const res = await req
+      .post(`${restGit.pathPrefix}/checkout`)
+      .send({ path: testDir, name: '-f' })
+      .expect(400);
+    expect(res.body.errorCode).to.be('invalid-ref-name');
+    expect(await common.get(req, '/checkout', { path: testDir })).to.be(before);
+  });
+
+  it('does not let branch deletion interpret an option', async () => {
+    const before = await common.get(req, '/branches', { path: testDir });
+    const res = await req
+      .delete(`${restGit.pathPrefix}/branches`)
+      .query({ path: testDir, name: '--all' })
+      .expect(400);
+    expect(res.body.errorCode).to.be('invalid-ref-name');
+    const after = await common.get(req, '/branches', { path: testDir });
+    expect(after.map((branch) => branch.name).sort()).to.eql(
+      before.map((branch) => branch.name).sort()
+    );
+  });
+
+  it('rejects option-like start points', async () => {
+    const create = await req
+      .post(`${restGit.pathPrefix}/branches`)
+      .send({ path: testDir, name: 'safe-start', sha1: '-f' })
+      .expect(400);
+    expect(create.body.errorCode).to.be('invalid-ref-name');
+    const branches = await common.get(req, '/branches', { path: testDir });
+    expect(branches.some((branch) => branch.name === 'safe-start')).to.be(false);
+
+    const checkout = await req
+      .post(`${restGit.pathPrefix}/checkout`)
+      .send({ path: testDir, name: 'safe-start', sha1: '-f' })
+      .expect(400);
+    expect(checkout.body.errorCode).to.be('invalid-ref-name');
+  });
 });

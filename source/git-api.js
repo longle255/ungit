@@ -599,6 +599,22 @@ exports.registerApi = (env) => {
     }
   };
 
+  const getRefName = (value) => {
+    const name = typeof value === 'string' ? value.trim() : '';
+    if (!name || name.startsWith('-')) {
+      throw { error: 'Invalid branch name', errorCode: 'invalid-ref-name' };
+    }
+    return name;
+  };
+
+  const getStartPoint = (value) => {
+    const startPoint = (value || 'HEAD').trim();
+    if (startPoint.startsWith('-')) {
+      throw { error: 'Invalid start point', errorCode: 'invalid-ref-name' };
+    }
+    return startPoint;
+  };
+
   app.get(`${exports.pathPrefix}/status`, ensureAuthenticated, ensurePathExists, (req, res) => {
     let limit = null;
     let offset;
@@ -1036,16 +1052,14 @@ exports.registerApi = (env) => {
   });
 
   app.post(`${exports.pathPrefix}/branches`, ensureAuthenticated, ensurePathExists, (req, res) => {
-    const commands = [
-      'branch',
-      req.body.force ? '-f' : '',
-      req.body.name.trim(),
-      (req.body.sha1 || 'HEAD').trim(),
-    ];
+    const task = Promise.resolve().then(() => {
+      const name = getRefName(req.body.name);
+      const startPoint = getStartPoint(req.body.sha1);
+      const commands = ['branch', req.body.force ? '-f' : '', '--', name, startPoint];
+      return gitPromise(commands, req.body.path);
+    });
 
-    jsonResultOrFailProm(res, gitPromise(commands, req.body.path)).finally(
-      emitGitDirectoryChanged.bind(null, req.body.path)
-    );
+    jsonResultOrFailProm(res, task).finally(emitGitDirectoryChanged.bind(null, req.body.path));
   });
 
   app.delete(
@@ -1053,10 +1067,12 @@ exports.registerApi = (env) => {
     ensureAuthenticated,
     ensurePathExists,
     (req, res) => {
-      jsonResultOrFailProm(
-        res,
-        gitPromise(['branch', '-D', req.query.name.trim()], req.query.path)
-      ).finally(emitGitDirectoryChanged.bind(null, req.query.path));
+      const task = Promise.resolve().then(() => {
+        const name = getRefName(req.query.name);
+        return gitPromise(['branch', '-D', '--', name], req.query.path);
+      });
+
+      jsonResultOrFailProm(res, task).finally(emitGitDirectoryChanged.bind(null, req.query.path));
     }
   );
 
@@ -1156,16 +1172,18 @@ exports.registerApi = (env) => {
   );
 
   app.post(`${exports.pathPrefix}/checkout`, ensureAuthenticated, ensurePathExists, (req, res) => {
-    const arg = req.body.sha1
-      ? ['checkout', '-b', req.body.name.trim(), req.body.sha1]
-      : ['checkout', req.body.name.trim()];
+    const task = Promise.resolve().then(() => {
+      const name = getRefName(req.body.name);
+      const arg = req.body.sha1
+        ? ['checkout', '-b', name, getStartPoint(req.body.sha1)]
+        : ['checkout', name];
 
-    jsonResultOrFailProm(
-      res,
-      trackedOperation(req, 'checkout', req.body.path, (operation) =>
+      return trackedOperation(req, 'checkout', req.body.path, (operation) =>
         autoStashExecuteAndPop(arg, req.body.path, null, null, null, null, operation)
-      )
-    )
+      );
+    });
+
+    jsonResultOrFailProm(res, task)
       .then(emitGitDirectoryChanged.bind(null, req.body.path))
       .then(emitWorkingTreeChanged.bind(null, req.body.path));
   });
