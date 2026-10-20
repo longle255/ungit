@@ -1,0 +1,98 @@
+{
+  "timestamp": "2026-10-20T08:19:14.007Z",
+  "label": null,
+  "node": "v24.18.0",
+  "git": "git version 2.55.0",
+  "machine": {
+    "hostname": "Longs-MacBook-Pro.local",
+    "platform": "darwin",
+    "release": "27.0.0",
+    "cpus": 18,
+    "cpuModel": "Apple M5 Max",
+    "totalMemBytes": 137438953472
+  },
+  "fixture": {
+    "commits": 10000,
+    "stagedFiles": 2500,
+    "unstagedFiles": 2500,
+    "untrackedFiles": 2500,
+    "largeDiffBytes": 5242880
+  },
+  "results": [
+    {
+      "name": "status-page-1",
+      "wallMs": 46,
+      "status": 200,
+      "bodyBytes": 11898,
+      "metrics": {
+        "commands": 3,
+        "active": 0,
+        "maxActive": 2,
+        "queueWaitMs": 2,
+        "commandMs": 41,
+        "stdoutBytes": 152684,
+        "stderrBytes": 0
+      }
+    },
+    {
+      "name": "status-page-2",
+      "wallMs": 30,
+      "status": 200,
+      "bodyBytes": 11937,
+      "metrics": {
+        "commands": 3,
+        "active": 0,
+        "maxActive": 2,
+        "queueWaitMs": 1,
+        "commandMs": 29,
+        "stdoutBytes": 152694,
+        "stderrBytes": 0
+      }
+    },
+    {
+      "name": "gitlog-page-1",
+      "wallMs": 13,
+      "status": 200,
+      "bodyBytes": 364630,
+      "metrics": {
+        "commands": 1,
+        "active": 0,
+        "maxActive": 1,
+        "queueWaitMs": 0,
+        "commandMs": 9,
+        "stdoutBytes": 60584,
+        "stderrBytes": 0
+      }
+    },
+    {
+      "name": "gitlog-page-2",
+      "wallMs": 8,
+      "status": 200,
+      "bodyBytes": 10231,
+      "metrics": {
+        "commands": 1,
+        "active": 0,
+        "maxActive": 1,
+        "queueWaitMs": 0,
+        "commandMs": 6,
+        "stdoutBytes": 6574,
+        "stderrBytes": 0
+      }
+    },
+    {
+      "name": "diff-bounded",
+      "wallMs": 35,
+      "status": 400,
+      "bodyBytes": 89,
+      "metrics": {
+        "commands": 4,
+        "active": 0,
+        "maxActive": 1,
+        "queueWaitMs": 0,
+        "commandMs": 33,
+        "stdoutBytes": 5243159,
+        "stderrBytes": 0
+      }
+    }
+  ]
+}

@@ -14,6 +14,16 @@ We are following the [Keep a Changelog](https://keepachangelog.com/) format.
   - Mark graph branch labels when a branch is checked out in another worktree
   - Refresh graph and worktree UI when Git worktree metadata changes
 
+### Changed
+- Page status and staging files in 50-file batches with exact totals and explicit load more
+- Scope status numstat work to the requested page and avoid full status work in commit/diff
+- Append graph pages instead of re-fetching the entire prefix
+- Bound large diff payloads and require an explicit full-load action
+
+### Fixes
+- Keep refresh events independent per repository and ignore stale client responses
+- Enforce Git concurrency from the first command
+
 ## [1.5.29](https://github.com/FredrikNoren/ungit/compare/v1.5.28...v1.5.29)
 
 ### Changed
