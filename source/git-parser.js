@@ -244,6 +244,28 @@ exports.parseGitLog = (data) => {
   return commits;
 };
 
+exports.parseGitReflog = (text) => {
+  return String(text || '')
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [sha1, shortSha, selector, action, subject, authorName, authorEmail] =
+        line.split('\0');
+      const selectorMatch = /^(.*)@\{(.*)\}$/.exec(selector || '');
+      return {
+        sha1,
+        shortSha,
+        selector,
+        ref: selectorMatch ? selectorMatch[1] : selector,
+        reflogDate: selectorMatch ? selectorMatch[2] : '',
+        action,
+        subject,
+        authorName,
+        authorEmail,
+      };
+    });
+};
+
 exports.parseGitConfig = (text) => {
   const conf = {};
   text.split('\n').forEach((row) => {

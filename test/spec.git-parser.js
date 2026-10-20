@@ -1005,3 +1005,53 @@ describe('parseGitStatus', () => {
     });
   });
 });
+
+describe('git-parser parseGitReflog', () => {
+  it('parses NUL-separated reflog entries', () => {
+    const text = [
+      '33a0214c5d32f65bc66e9ce480e475c1aa48e601\x0033a0214c\x00HEAD@{2026-10-20T10:36:27+02:00}\x00reset: moving to HEAD~1\x00fix: keep graph nodes\x00Long Le\x00long@example.com',
+      '4b7a53c9b70d520296ace701daf8dddc8d9bddf0\x004b7a53c9\x00HEAD@{2026-10-19T09:00:00+02:00}\x00commit: add parser\x00add parser\x00Test User\x00',
+      '',
+    ].join('\n');
+
+    expect(gitParser.parseGitReflog(text)).to.eql([
+      {
+        sha1: '33a0214c5d32f65bc66e9ce480e475c1aa48e601',
+        shortSha: '33a0214c',
+        selector: 'HEAD@{2026-10-20T10:36:27+02:00}',
+        ref: 'HEAD',
+        reflogDate: '2026-10-20T10:36:27+02:00',
+        action: 'reset: moving to HEAD~1',
+        subject: 'fix: keep graph nodes',
+        authorName: 'Long Le',
+        authorEmail: 'long@example.com',
+      },
+      {
+        sha1: '4b7a53c9b70d520296ace701daf8dddc8d9bddf0',
+        shortSha: '4b7a53c9',
+        selector: 'HEAD@{2026-10-19T09:00:00+02:00}',
+        ref: 'HEAD',
+        reflogDate: '2026-10-19T09:00:00+02:00',
+        action: 'commit: add parser',
+        subject: 'add parser',
+        authorName: 'Test User',
+        authorEmail: '',
+      },
+    ]);
+  });
+
+  it('keeps a malformed selector without throwing', () => {
+    const text = 'abc123\x00abc123\x00not-a-selector\x00commit: x\x00subject\x00A\x00a@b';
+    expect(gitParser.parseGitReflog(text)[0]).to.eql({
+      sha1: 'abc123',
+      shortSha: 'abc123',
+      selector: 'not-a-selector',
+      ref: 'not-a-selector',
+      reflogDate: '',
+      action: 'commit: x',
+      subject: 'subject',
+      authorName: 'A',
+      authorEmail: 'a@b',
+    });
+  });
+});
