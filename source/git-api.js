@@ -873,6 +873,44 @@ exports.registerApi = (env) => {
     jsonResultOrFailProm(res, task);
   });
 
+  app.get(`${exports.pathPrefix}/reflog`, ensureAuthenticated, ensurePathExists, (req, res) => {
+    let limit;
+    let skip;
+    try {
+      limit = getNumber(req.query.limit, 100);
+      skip = getNumber(req.query.skip, 0);
+    } catch (err) {
+      return res.status(400).json({
+        error: err.error || err.message || 'invalid number',
+        errorCode: 'invalid-paging',
+      });
+    }
+    if (limit < 1 || limit > 500) {
+      return res.status(400).json({
+        error: 'limit must be between 1 and 500',
+        errorCode: 'invalid-limit',
+      });
+    }
+    if (skip < 0) {
+      return res.status(400).json({
+        error: 'skip must be zero or greater',
+        errorCode: 'invalid-offset',
+      });
+    }
+
+    const task = gitPromise.reflog(req.query.path, limit, skip).catch((err) => {
+      if (
+        err.errorCode === 'no-head' ||
+        err.errorCode === 'no-commits' ||
+        err.errorCode === 'not-a-repository'
+      ) {
+        return { entries: [], hasMore: false };
+      }
+      throw err;
+    });
+    jsonResultOrFailProm(res, task);
+  });
+
   app.get(`${exports.pathPrefix}/show`, ensureAuthenticated, (req, res) => {
     jsonResultOrFailProm(
       res,

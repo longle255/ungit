@@ -779,4 +779,40 @@ git.log = (path, limit, skip, maxActiveBranchSearchIteration) => {
     });
 };
 
+git.reflog = (repoPath, limit, skip) => {
+  return git(
+    [
+      'reflog',
+      '--date=iso-strict',
+      `--max-count=${limit + 1}`,
+      `--skip=${skip}`,
+      '--format=%H%x00%h%x00%gd%x00%gs%x00%s%x00%an%x00%ae',
+      'HEAD',
+    ],
+    repoPath
+  )
+    .catch((err) => {
+      const missingHead =
+        err.errorCode === 'no-head' ||
+        err.errorCode === 'no-commits' ||
+        /ambiguous argument 'HEAD'|bad revision 'HEAD'|does not have any commits yet/i.test(
+          err.error || ''
+        );
+      if (missingHead) return '';
+      throw err;
+    })
+    .then(gitParser.parseGitReflog)
+    .then((parsed) => {
+      const hasMore = parsed.length > limit;
+      const raw = hasMore ? parsed.slice(0, limit) : parsed;
+      const seen = new Set();
+      const entries = raw.filter((entry) => {
+        if (seen.has(entry.sha1)) return false;
+        seen.add(entry.sha1);
+        return true;
+      });
+      return { entries, hasMore };
+    });
+};
+
 module.exports = git;
