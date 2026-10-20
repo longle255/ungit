@@ -31,6 +31,11 @@ class RepositoryViewModel {
       graph: this.graph,
       repoPath: this.repoPath,
     });
+    this.tools = components.create('tools', {
+      server,
+      repoPath: this.repoPath,
+      isBareDir: this.isBareDir,
+    });
     this.repoPath.subscribe((value) => {
       this.server.watchRepository(value);
     });

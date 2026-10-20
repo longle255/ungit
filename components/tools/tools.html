@@ -1,0 +1,21 @@
+<div class="btn-group tools">
+  <button
+    type="button"
+    class="btn btn-default dropdown-toggle"
+    data-toggle="dropdown"
+    aria-haspopup="true"
+    aria-expanded="false"
+    title="Repository tools"
+    aria-label="Repository tools"
+  >
+    <span data-bind="html: toolsIcon"></span>
+    <span class="sr-only">Toggle repository tools</span>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-right tools-menu" role="menu">
+    <li>
+      <a href="#" role="menuitem" data-bind="click: openReflog" data-ta-action="open-reflog">
+        Recover lost commit
+      </a>
+    </li>
+  </ul>
+</div>
