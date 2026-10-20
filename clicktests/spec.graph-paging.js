@@ -15,6 +15,18 @@ describe('[GRAPH PAGING]', () => {
 
   it('opens the repository', () => environment.openUngit(testRepoPaths[0]));
 
+  it('renders a circle for every commit', async () => {
+    const nodeCount = await environment.page.$$eval('.nodeContainer', (els) => els.length);
+    const positions = await environment.page.$$eval('svg.graphLog > g > svg', (els) =>
+      els.map((el) => ({ x: el.getAttribute('x'), y: el.getAttribute('y') }))
+    );
+    expect(positions.length).to.be(nodeCount);
+    positions.forEach(({ x, y }) => {
+      expect(Number.isFinite(Number(x))).to.be(true);
+      expect(Number.isFinite(Number(y))).to.be(true);
+    });
+  });
+
   it('appends without duplicate nodes', async () => {
     const initial = await environment.page.$$eval('.nodeContainer', (els) => els.length);
     await environment.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));

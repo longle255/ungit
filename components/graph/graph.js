@@ -191,9 +191,12 @@ class GraphViewModel extends ComponentRoot {
     this.nextSkip = skip + uniqueEntries.length;
     this.hasMoreNodes(entries.length >= this.pageSize);
     const nodes = this.computeNode(uniqueEntries.map((entry) => this.getNode(entry.sha1, entry)));
+    // Render before assigning the observable array: the template's element
+    // binding animates from the node's current coordinates, so cx/cy must be
+    // set first or the nested <svg> gets NaN x/y and its circle disappears.
+    nodes.forEach((node) => node.render());
     this.nodes(nodes);
     this.edges(this.buildEdges(nodes));
-    nodes.forEach((node) => node.render());
     this.updateGraphSize(nodes);
   }
 
